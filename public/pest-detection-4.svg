@@ -1,0 +1,5 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <image href="https://images.unsplash.com/photo-1605000797499-95a51c5269ae?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&h=600&q=80" width="800" height="600"/>
+  <rect width="800" height="600" fill="rgba(0,0,0,0.3)"/>
+  <text x="400" y="300" font-family="Arial" font-size="32" fill="white" text-anchor="middle">Prevention Recommendations</text>
+</svg>
