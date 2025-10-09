@@ -1,10 +1,8 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useRef, useEffect, useCallback } from "react"
+import React, { useState, useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
-import { ArrowUpIcon, Upload, Camera, Loader2 } from "lucide-react"
+import { ArrowUpIcon, Upload, Loader2 } from "lucide-react"
 import { Button } from "@/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 import ReactMarkdown from "react-markdown"
@@ -358,28 +356,6 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
     window.location.href = "/interbot/live"
   }
 
-  // Start Live Mode - Navigate to dedicated live mode page
-  const startLiveMode = () => {
-    window.location.href = "/interbot/live"
-  }
-
-  // Capture frame from video
-  const captureFrame = (): string | null => {
-    if (!canvasRef.current || !videoRef.current) return null
-    
-    const canvas = canvasRef.current
-    const video = videoRef.current
-    
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    
-    ctx.drawImage(video, 0, 0)
-    return canvas.toDataURL('image/jpeg', 0.8)
-  }
-
   // Handle form submission
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -445,15 +421,12 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
   }
 
   // Auto-resize textarea
-  const AutoResizeTextarea = ({
-    value,
-    onChange,
-    ...props
-  }: {
-    value: string
-    onChange: (value: string) => void
-    [key: string]: any
-  }) => {
+  const AutoResizeTextarea = React.forwardRef<
+    HTMLTextAreaElement,
+    Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange'> & {
+      onChange: (value: string) => void
+    }
+  >(({ value, onChange, ...props }, ) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
     const resizeTextarea = useCallback(() => {
@@ -482,7 +455,9 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
         className={cn("resize-none min-h-4 max-h-80", props.className)}
       />
     )
-  }
+  })
+
+  AutoResizeTextarea.displayName = "AutoResizeTextarea"
 
   // Render message content with images/videos/heatmaps
   const renderMessageContent = (message: Message) => {
@@ -526,6 +501,7 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
 
         {message.imageUrl && (
           <div className="mt-2 relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={message.imageUrl || "/placeholder.svg"}
               alt="Uploaded pest"
@@ -550,6 +526,7 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
 
         {message.heatmapUrl && (
           <div className="mt-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={message.heatmapUrl || "/placeholder.svg"}
               alt="Pest heatmap"

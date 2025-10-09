@@ -357,7 +357,7 @@ export default function LiveModePage() {
         currentAudioSourceRef.current.stop()
         currentAudioSourceRef.current.disconnect()
         console.log("🛑 Stopped current audio source")
-      } catch (e) {
+      } catch {
         // Already stopped
       }
       currentAudioSourceRef.current = null
@@ -389,7 +389,8 @@ export default function LiveModePage() {
 
       // Initialize AudioContext if needed
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        audioContextRef.current = new AudioContextClass()
         console.log("🔊 AudioContext created")
       }
 

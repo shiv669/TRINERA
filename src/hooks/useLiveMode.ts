@@ -5,6 +5,60 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
+// SpeechRecognition type definitions
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message?: string;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  onstart: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
+
+// WebSocket message types
+interface WebSocketMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
 interface LiveModeConfig {
   sessionId: string
   language: 'english' | 'hindi'
@@ -31,7 +85,7 @@ export function useLiveMode(config: LiveModeConfig) {
   const [lastAnalysis, setLastAnalysis] = useState<FrameAnalysis | null>(null)
   
   const wsRef = useRef<WebSocket | null>(null)
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const frameIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -118,7 +172,7 @@ export function useLiveMode(config: LiveModeConfig) {
   /**
    * Handle messages from server
    */
-  const handleServerMessage = (data: any) => {
+  const handleServerMessage = (data: WebSocketMessage) => {
     console.log('📥 Received:', data.type)
 
     switch (data.type) {
@@ -127,15 +181,19 @@ export function useLiveMode(config: LiveModeConfig) {
         break
 
       case 'frame_processed':
-        setLastAnalysis(data.analysis)
+        setLastAnalysis(data.analysis as FrameAnalysis)
         break
 
       case 'ai_response':
-        config.onAIResponse?.(data.text)
+        if (typeof data.text === 'string') {
+          config.onAIResponse?.(data.text)
+        }
         break
 
       case 'tts_audio':
-        playAudio(data.audio)
+        if (typeof data.audio === 'string') {
+          playAudio(data.audio)
+        }
         break
 
       case 'stop_tts':
@@ -144,7 +202,9 @@ export function useLiveMode(config: LiveModeConfig) {
 
       case 'error':
         console.error('Server error:', data.message)
-        config.onError?.(data.message)
+        if (typeof data.message === 'string') {
+          config.onError?.(data.message)
+        }
         break
 
       case 'pong':
@@ -209,14 +269,13 @@ export function useLiveMode(config: LiveModeConfig) {
       return
     }
 
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
+    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition
     const recognition = new SpeechRecognition()
     recognitionRef.current = recognition
 
     recognition.continuous = true // Keep listening for multiple utterances
     recognition.interimResults = true
     recognition.lang = config.language === 'hindi' ? 'hi-IN' : 'en-US'
-    recognition.maxAlternatives = 1
 
     recognition.onstart = () => {
       console.log('🎤 Speech recognition started')
@@ -224,7 +283,7 @@ export function useLiveMode(config: LiveModeConfig) {
       setTranscript('')
     }
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       const current = event.resultIndex
       const transcriptText = event.results[current][0].transcript
       
@@ -238,7 +297,7 @@ export function useLiveMode(config: LiveModeConfig) {
       }
     }
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('🎤 Speech recognition error:', event.error)
       if (event.error === 'no-speech') {
         console.log('🎤 No speech detected, restarting...')
@@ -247,8 +306,8 @@ export function useLiveMode(config: LiveModeConfig) {
           if (recognitionRef.current) {
             try {
               recognitionRef.current.start()
-            } catch (err) {
-              console.error('Error restarting recognition:', err)
+            } catch (error) {
+              console.error('Error restarting recognition:', error)
             }
           }
         }, 1000)
