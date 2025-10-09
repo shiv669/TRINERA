@@ -188,11 +188,17 @@ export default function Page() {
       formData.append("file", fileToUpload)
       formData.append("language", language)
 
+      // Create abort controller with 150 second timeout (HF Space needs ~40s for inference)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 150000) // 150 seconds
+
       // Call FastAPI backend
       const response = await fetch(config.endpoints.pestDetection, {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       })
+      clearTimeout(timeoutId)
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -284,8 +290,14 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
       let errorMessage = ""
       
       if (error instanceof Error) {
+        // Check for timeout/abort error
+        if (error.name === 'AbortError') {
+          errorMessage = language === "english"
+            ? "⏱️ Request Timeout: The pest detection is taking longer than expected (>150 seconds). The AI model might be processing other requests. Please try again in a moment."
+            : "⏱️ समय समाप्त: कीट पहचान अपेक्षा से अधिक समय ले रही है (>150 सेकंड)। AI मॉडल अन्य अनुरोधों को संसाधित कर रहा हो सकता है। कृपया कुछ देर बाद पुनः प्रयास करें।"
+        }
         // Check for specific error types
-        if (error.message.includes("Failed to process image") || error.message.includes("500")) {
+        else if (error.message.includes("Failed to process image") || error.message.includes("500")) {
           errorMessage = language === "english"
             ? "⚠️ Backend Error: The pest detection service encountered an issue. This is usually due to:\n\n1. Invalid HuggingFace token\n2. Service temporarily unavailable\n\nPlease check the backend logs or try again in a moment."
             : "⚠️ बैकएंड त्रुटि: कीट पहचान सेवा में समस्या आई। यह आमतौर पर इन कारणों से होता है:\n\n1. अमान्य HuggingFace टोकन\n2. सेवा अस्थायी रूप से अनुपलब्ध\n\nकृपया बैकएंड लॉग जांचें या कुछ देर बाद पुनः प्रयास करें।"
