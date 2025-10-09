@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Trinera - AI",
-  description: "Created for farmers with love",
+  title: "TRINERA - AI-Powered Live Farming Assistant",
+  description: "Real-time pest detection with voice interaction. Talk to AI, show your crops, get instant treatment advice. Powered by Ollama, HuggingFace & Edge TTS. Built with ❤️ for farmers.",
 };
 
 export default function RootLayout({

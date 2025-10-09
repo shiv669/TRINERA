@@ -19,19 +19,20 @@ const Footer = () => {
         <div className="xl:grid xl:grid-cols-3 xl:gap-8">
           <div className="space-y-8 xl:col-span-1">
             <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 tracking-wider uppercase">
-              About Us
+              About TRINERA
             </h3>
             <p className="text-base text-neutral-600 dark:text-neutral-400">
-              Pest Detection and Treatment System - Making agriculture smarter and safer.
+              AI-powered live farming assistant with real-time pest detection. Combining voice interaction, 
+              computer vision, and advanced AI models to help farmers protect their crops.
             </p>
             <div className="flex space-x-6">
-              <a href="#" className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
-                <DIcons.X className="h-6 w-6" />
-              </a>
-              <a href="#" className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
+              <a href="https://github.com/shiv669/TRINERA" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
                 <DIcons.GitBranchPlus className="h-6 w-6" />
               </a>
-              <a href="#" className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
+              <a href="https://github.com/shiv669/TRINERA" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
+                <DIcons.X className="h-6 w-6" />
+              </a>
+              <a href="https://github.com/shiv669/TRINERA" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
                 <DIcons.LinkedIn className="h-6 w-6" />
               </a>
             </div>
@@ -40,44 +41,44 @@ const Footer = () => {
             <div className="md:grid md:grid-cols-2 md:gap-8">
               <div>
                 <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 tracking-wider uppercase">
-                  Quick Links
+                  Features
                 </h3>
                 <ul className="mt-4 space-y-4">
                   <li>
-                    <a href="#" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
-                      Home
+                    <a href="/interbot/live" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
+                      Live Mode
                     </a>
                   </li>
                   <li>
-                    <a href="#" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
-                      About
+                    <a href="/interbot" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
+                      Chat Assistant
                     </a>
                   </li>
                   <li>
-                    <a href="#" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
-                      Services
+                    <a href="/cpu" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
+                      Architecture
                     </a>
                   </li>
                 </ul>
               </div>
               <div className="mt-12 md:mt-0">
                 <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 tracking-wider uppercase">
-                  Resources
+                  Technologies
                 </h3>
                 <ul className="mt-4 space-y-4">
                   <li>
-                    <a href="#" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
-                      Documentation
+                    <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
+                      Ollama AI
                     </a>
                   </li>
                   <li>
-                    <a href="#" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
-                      Blog
+                    <a href="https://huggingface.co" target="_blank" rel="noopener noreferrer" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
+                      HuggingFace
                     </a>
                   </li>
                   <li>
-                    <a href="#" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
-                      Contact
+                    <a href="https://github.com/shiv669/TRINERA" target="_blank" rel="noopener noreferrer" className="text-base text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200">
+                      GitHub Repo
                     </a>
                   </li>
                 </ul>
@@ -88,7 +89,7 @@ const Footer = () => {
         <div className="mt-12 border-t border-neutral-200 dark:border-neutral-800 pt-8">
           <div className="flex items-center justify-between">
             <p className="text-base text-neutral-500 dark:text-neutral-400">
-              © 2025 Trinera. All rights reserved.
+              © 2025 TRINERA - AI-Powered Farming Assistant. Built with ❤️ for farmers.
             </p>
             <div className="flex items-center space-x-4">
               <div className="flex items-center rounded-full border border-dotted p-1">
