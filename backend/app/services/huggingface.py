@@ -32,19 +32,34 @@ class HuggingFaceService:
                 # Try with token first
                 if settings.HF_TOKEN:
                     logger.info("Using HF_TOKEN for authentication")
-                    self.client = Client(self.space_name, hf_token=settings.HF_TOKEN)
+                    try:
+                        self.client = Client(self.space_name, hf_token=settings.HF_TOKEN)
+                        logger.info("✅ Successfully connected to Gradio Space with token")
+                    except Exception as token_error:
+                        logger.warning(f"Failed with token: {str(token_error)}")
+                        logger.info("Retrying without token...")
+                        self.client = Client(self.space_name)
+                        logger.info("✅ Successfully connected to Gradio Space without token")
                 else:
                     logger.warning("No HF_TOKEN provided, connecting without authentication")
                     self.client = Client(self.space_name)
+                    logger.info("✅ Successfully connected to Gradio Space")
             except Exception as e:
-                logger.error(f"Failed to initialize client with token: {str(e)}")
-                # Fallback: try without token
-                logger.info("Retrying connection without authentication token")
-                try:
-                    self.client = Client(self.space_name)
-                except Exception as fallback_error:
-                    logger.error(f"Failed to initialize client without token: {str(fallback_error)}")
-                    raise Exception(f"Cannot connect to Hugging Face Space: {str(fallback_error)}")
+                error_msg = str(e)
+                logger.error(f"Failed to initialize Gradio client: {error_msg}")
+                
+                # Provide helpful error message
+                if "Expecting value" in error_msg:
+                    raise Exception(
+                        f"Hugging Face Space '{self.space_name}' is not responding correctly. "
+                        "Please check:\n"
+                        "1. The Space is running (not sleeping or building)\n"
+                        "2. The Space is public\n"
+                        "3. Visit https://huggingface.co/spaces/{self.space_name} to wake it up\n"
+                        f"Error: {error_msg}"
+                    )
+                else:
+                    raise Exception(f"Cannot connect to Hugging Face Space: {error_msg}")
         return self.client
     
     async def analyze_image_heavy(self, image_path: str) -> Dict[str, Any]:
