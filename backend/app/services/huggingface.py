@@ -22,7 +22,7 @@ class HuggingFaceService:
     def __init__(self):
         self.space_name = settings.HF_MODEL_ID
         self.client = None
-        self.timeout = 60.0  # 60 seconds timeout for Gradio
+        self.timeout = 120.0  # 120 seconds timeout (Space needs ~40s for inference)
     
     def _get_client(self) -> Client:
         """Get or create Gradio client."""
