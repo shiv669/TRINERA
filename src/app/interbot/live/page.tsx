@@ -2,8 +2,56 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Camera, Mic, MicOff, Video, VideoOff, PhoneOff, SwitchCamera } from "lucide-react"
+import { Mic, MicOff, Video, VideoOff, PhoneOff, SwitchCamera } from "lucide-react"
 import config from "@/lib/config"
+
+// Extend Window interface for Web Speech API
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message?: string;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  onstart: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
 
 interface Message {
   role: "user" | "assistant"
@@ -29,7 +77,7 @@ export default function LiveModePage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
   const frameIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null)
@@ -198,7 +246,7 @@ export default function LiveModePage() {
       return
     }
 
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
+    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition
     const recognition = new SpeechRecognition()
     recognitionRef.current = recognition
 
@@ -211,7 +259,7 @@ export default function LiveModePage() {
       setIsListening(true)
     }
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimTranscript = ""
       let finalTranscript = ""
 
@@ -237,7 +285,7 @@ export default function LiveModePage() {
       }
     }
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("🎤 Recognition error:", event.error)
       
       if (event.error === 'no-speech') {
@@ -258,8 +306,8 @@ export default function LiveModePage() {
         setTimeout(() => {
           try {
             recognition.start()
-          } catch (err) {
-            console.log("Recognition already running")
+          } catch (error) {
+            console.log("Recognition already running", error)
           }
         }, 100)
       }
