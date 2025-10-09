@@ -195,8 +195,14 @@ export default function Page() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to analyze image")
+        let errorMessage = `Server error: ${response.status} ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.detail || errorMessage
+        } catch {
+          // Response is not JSON, use status text
+        }
+        throw new Error(errorMessage)
       }
 
       const result = await response.json()
