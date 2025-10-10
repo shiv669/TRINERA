@@ -182,46 +182,35 @@ class HuggingFaceService:
             client = self._get_client()
             
             # Call the Gradio API
-            # Your Space's detect_image function returns (image_path, text_results)
-            logger.info("Calling Gradio API - using default predict endpoint")
+            # Your Space's detect_image function returns (detected_output, detection_results)
+            # API signature: predict(image, api_name="/detect_image") -> (detected_output, detection_results)
+            logger.info("Calling Gradio API with /detect_image endpoint")
             
             try:
-                # Call without api_name to use the default function
-                # Your Gradio app has img_input.change(detect_image, ...)
-                # So we call predict with the image parameter
+                # Call with correct api_name and parameter
                 result = client.predict(
-                    img_input=handle_file(temp_file_path)
+                    image=handle_file(temp_file_path),
+                    api_name="/detect_image"
                 )
                 logger.info(f"✅ Got result from Gradio API: {type(result)}")
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"Gradio API call failed: {error_msg}")
                 
-                # Try alternative: call with api_name="/predict" 
-                logger.info("Retrying with api_name='/predict'")
-                try:
-                    result = client.predict(
-                        handle_file(temp_file_path),
-                        api_name="/predict"
+                # Provide helpful error messages
+                if "401" in error_msg or "Unauthorized" in error_msg:
+                    raise Exception(
+                        "Authentication failed with Hugging Face. Please check:\n"
+                        "1. Your HF_TOKEN is valid (get a new one from https://huggingface.co/settings/tokens)\n"
+                        "2. The token has 'read' permissions\n"
+                        "3. The Space 'S1-1IVAM/trinera-pest-detector' exists and is accessible\n"
+                        f"Current token starts with: {settings.HF_TOKEN[:10] if settings.HF_TOKEN else 'None'}..."
                     )
-                    logger.info(f"✅ Got result from /predict endpoint: {type(result)}")
-                except Exception as retry_error:
-                    logger.error(f"Retry also failed: {retry_error}")
-                    
-                    # Provide helpful error messages
-                    if "401" in error_msg or "Unauthorized" in error_msg:
-                        raise Exception(
-                            "Authentication failed with Hugging Face. Please check:\n"
-                            "1. Your HF_TOKEN is valid (get a new one from https://huggingface.co/settings/tokens)\n"
-                            "2. The token has 'read' permissions\n"
-                            "3. The Space 'S1-1IVAM/trinera-pest-detector' exists and is accessible\n"
-                            f"Current token starts with: {settings.HF_TOKEN[:10]}..."
-                        )
-                    elif "404" in error_msg or "Not Found" in error_msg:
-                        raise Exception(
-                            f"Hugging Face Space '{self.space_name}' not found. "
-                            "Please verify the Space name is correct."
-                        )
+                elif "404" in error_msg or "Not Found" in error_msg:
+                    raise Exception(
+                        f"Hugging Face Space '{self.space_name}' not found. "
+                        "Please verify the Space name is correct."
+                    )
                 else:
                     raise Exception(f"Gradio API error: {error_msg}")
             
