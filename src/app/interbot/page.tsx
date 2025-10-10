@@ -438,7 +438,7 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
     Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange'> & {
       onChange: (value: string) => void
     }
-  >(({ value, onChange, ...props }, ) => {
+  >(({ value, onChange, ...props }, ref) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
     const resizeTextarea = useCallback(() => {
