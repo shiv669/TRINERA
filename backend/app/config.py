@@ -4,9 +4,13 @@ Loads environment variables and provides application settings.
 """
 
 import os
+import logging
 from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Get the backend directory path
 BACKEND_DIR = Path(__file__).parent.parent
@@ -58,10 +62,12 @@ class Settings:
     
     def validate(self) -> None:
         """Validate critical configuration settings."""
+        # HF_TOKEN is optional for public Spaces
         if not self.HF_TOKEN:
-            raise ValueError(
-                "HF_TOKEN is not set. Please set your Hugging Face token in .env file. "
-                "Get your token from: https://huggingface.co/settings/tokens"
+            logger.warning(
+                "HF_TOKEN is not set. Connecting to Hugging Face Space without authentication. "
+                "This is fine for public Spaces, but you may get rate limited. "
+                "Get a token from: https://huggingface.co/settings/tokens"
             )
 
 
