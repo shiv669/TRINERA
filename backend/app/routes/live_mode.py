@@ -446,10 +446,10 @@ The farmer is asking about this detected pest.
                 gender="female"
             )
             
-            # Send audio response
+            # Send audio response (use "tts_audio" to match frontend expectation)
             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
             await self.send_message(session_id, {
-                "type": "audio",
+                "type": "tts_audio",
                 "audio": audio_base64
             })
             
@@ -457,6 +457,13 @@ The farmer is asking about this detected pest.
             
         except Exception as e:
             logger.error(f"❌ TTS generation error: {e}")
+            # Send text-only response as fallback when TTS fails
+            await self.send_message(session_id, {
+                "type": "text_only",
+                "text": text,
+                "error": "TTS temporarily unavailable - showing text only"
+            })
+            logger.warning(f"⚠️ Sent text-only fallback due to TTS error")
     
     async def handle_interruption(self, session_id: str):
         """Handle user interruption (stop TTS playback)."""

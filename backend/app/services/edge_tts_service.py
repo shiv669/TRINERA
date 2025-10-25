@@ -10,6 +10,7 @@ import tempfile
 import logging
 from typing import Optional, Literal
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ class EdgeTTSService:
             "hi": "hi-IN-SwaraNeural",      # Hindi Female (Default)
             "hi-male": "hi-IN-MadhurNeural"  # Hindi Male
         }
+        self.max_retries = 3
+        self.retry_delay = 1.0  # seconds
         logger.info("✓ Edge TTS Service initialized (FREE - No API key required)")
     
     async def text_to_speech(
@@ -39,7 +42,7 @@ class EdgeTTSService:
         gender: Literal["female", "male"] = "female"
     ) -> bytes:
         """
-        Convert text to speech using Edge TTS.
+        Convert text to speech using Edge TTS with retry logic.
         
         Args:
             text: Text to convert to speech
@@ -56,40 +59,56 @@ class EdgeTTSService:
                 gender="female"
             )
         """
-        try:
-            # Select voice based on language and gender
-            voice_key = language
-            if gender == "male":
-                voice_key = f"{language}-male"
-            
-            voice = self.voices.get(voice_key, self.voices["en"])
-            
-            logger.info(f"🎤 Converting to speech: '{text[:50]}...' | Voice: {voice}")
-            
-            # Create temporary file for audio
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
-                temp_path = temp_file.name
-            
-            # Generate speech using Edge TTS
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(temp_path)
-            
-            # Read audio bytes
-            with open(temp_path, "rb") as f:
-                audio_bytes = f.read()
-            
-            # Cleanup temporary file
+        # Try with retries
+        for attempt in range(self.max_retries):
             try:
-                Path(temp_path).unlink()
-            except:
-                pass
-            
-            logger.info(f"✓ TTS generated: {len(audio_bytes):,} bytes")
-            return audio_bytes
-            
-        except Exception as e:
-            logger.error(f"❌ Error in Edge TTS: {e}")
-            raise
+                # Select voice based on language and gender
+                voice_key = language
+                if gender == "male":
+                    voice_key = f"{language}-male"
+                
+                voice = self.voices.get(voice_key, self.voices["en"])
+                
+                if attempt > 0:
+                    logger.info(f"🔄 Retry attempt {attempt + 1}/{self.max_retries}")
+                    await asyncio.sleep(self.retry_delay * (attempt + 1))  # Exponential backoff
+                
+                logger.info(f"🎤 Converting to speech: '{text[:50]}...' | Voice: {voice}")
+                
+                # Create temporary file for audio
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+                    temp_path = temp_file.name
+                
+                # Generate speech using Edge TTS
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(temp_path)
+                
+                # Read audio bytes
+                with open(temp_path, "rb") as f:
+                    audio_bytes = f.read()
+                
+                # Cleanup temporary file
+                try:
+                    Path(temp_path).unlink()
+                except:
+                    pass
+                
+                logger.info(f"✓ TTS generated: {len(audio_bytes):,} bytes")
+                return audio_bytes
+                
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"❌ Error in Edge TTS (attempt {attempt + 1}): {error_msg}")
+                
+                # If it's a 403 error and we have retries left, continue
+                if "403" in error_msg and attempt < self.max_retries - 1:
+                    logger.warning(f"⚠️ 403 error - Will retry in {self.retry_delay * (attempt + 1)}s")
+                    continue
+                
+                # If we've exhausted retries or it's a different error, raise
+                if attempt == self.max_retries - 1:
+                    logger.error(f"❌ All {self.max_retries} retry attempts failed")
+                raise
     
     async def text_to_speech_stream(
         self, 

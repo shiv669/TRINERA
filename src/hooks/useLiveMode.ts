@@ -191,8 +191,11 @@ export function useLiveMode(config: LiveModeConfig) {
         break
 
       case 'tts_audio':
+      case 'audio': // backward compatibility: some servers may send 'audio' type
         if (typeof data.audio === 'string') {
           playAudio(data.audio)
+        } else {
+          console.warn('Received audio message without audio payload')
         }
         break
 

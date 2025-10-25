@@ -241,8 +241,16 @@ export default function LiveModePage() {
    * Initialize speech recognition
    */
   const initializeSpeechRecognition = useCallback(() => {
+    // Check browser support
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      console.error("Speech recognition not supported")
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+      const errorMsg = isMobile 
+        ? "Speech recognition is not supported on this mobile browser. Please use Chrome on Android or Safari on iOS."
+        : "Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari."
+      
+      console.error("❌ Speech recognition not supported")
+      alert(errorMsg)
+      setIsMicOn(false)
       return
     }
 
@@ -372,7 +380,7 @@ export default function LiveModePage() {
    */
   const playAudioChunk = async (base64Audio: string) => {
     try {
-      console.log("🔊 Attempting to play audio, length:", base64Audio?.length)
+      console.log("🔊 playAudioChunk called, audio length:", base64Audio?.length)
       
       if (!base64Audio) {
         console.error("❌ No audio data provided")
@@ -389,17 +397,20 @@ export default function LiveModePage() {
 
       // Initialize AudioContext if needed
       if (!audioContextRef.current) {
+        console.warn("⚠️ AudioContext not initialized - may not play due to autoplay policy")
         const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext
         audioContextRef.current = new AudioContextClass()
-        console.log("🔊 AudioContext created")
+        console.log("🔊 AudioContext created, state:", audioContextRef.current.state)
       }
 
       const audioContext = audioContextRef.current
+      console.log("🔊 AudioContext state before resume:", audioContext.state)
 
       // Resume if suspended (required by browsers)
       if (audioContext.state === 'suspended') {
+        console.warn("⚠️ AudioContext is suspended - attempting to resume...")
         await audioContext.resume()
-        console.log("🔊 AudioContext resumed")
+        console.log("🔊 AudioContext resumed, new state:", audioContext.state)
       }
 
       isPlayingAudioRef.current = true
@@ -416,7 +427,7 @@ export default function LiveModePage() {
 
       // Decode audio
       const audioBuffer = await audioContext.decodeAudioData(bytes.buffer.slice(0))
-      console.log("🔊 Audio decoded successfully, duration:", audioBuffer.duration, "seconds")
+      console.log("✅ Audio decoded successfully, duration:", audioBuffer.duration, "seconds")
       
       // Create and play audio source
       const source = audioContext.createBufferSource()
@@ -425,14 +436,14 @@ export default function LiveModePage() {
       currentAudioSourceRef.current = source
       
       source.onended = () => {
-        console.log("🔊 Audio playback finished")
+        console.log("✅ Audio playback finished")
         isPlayingAudioRef.current = false
         setIsSpeaking(false)
         currentAudioSourceRef.current = null
       }
       
       source.start(0)
-      console.log("🔊 Audio playback started")
+      console.log("✅ Audio playback started!")
       
     } catch (error) {
       console.error("❌ Error playing audio:", error)
@@ -510,7 +521,7 @@ export default function LiveModePage() {
   /**
    * Toggle microphone
    */
-  const toggleMicrophone = () => {
+  const toggleMicrophone = async () => {
     if (isMicOn) {
       // Turn off mic
       if (recognitionRef.current) {
@@ -519,7 +530,24 @@ export default function LiveModePage() {
       setIsMicOn(false)
       setIsListening(false)
     } else {
-      // Turn on mic
+      // Turn on mic - THIS IS A USER GESTURE, UNLOCK AUDIO HERE!
+      
+      // Initialize and unlock AudioContext for TTS playback (required by browser autoplay policy)
+      try {
+        if (!audioContextRef.current) {
+          // Create AudioContext now (will be in running state due to user gesture)
+          const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+          audioContextRef.current = new AudioContextClass()
+          console.log("🔊 AudioContext created via user gesture, state:", audioContextRef.current.state)
+        } else if (audioContextRef.current.state === 'suspended') {
+          // Resume if suspended
+          await audioContextRef.current.resume()
+          console.log("🔊 AudioContext resumed via user gesture, state:", audioContextRef.current.state)
+        }
+      } catch (e) {
+        console.error("❌ Failed to initialize/unlock AudioContext:", e)
+      }
+      
       setIsMicOn(true)
       initializeSpeechRecognition()
     }
