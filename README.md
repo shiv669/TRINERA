@@ -75,6 +75,8 @@ TRINERA provides:
 - **Visual Feedback**: Analysis status overlay with progress indicators
 - **Session Management**: Context-aware conversations
 
+> **Note**: Mobile TTS playback feature will be available soon. Currently optimized for desktop browsers.
+
 ### 💬 Chat Interface
 
 - **Image Upload**: Upload pest photos for analysis
