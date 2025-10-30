@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
-import { ArrowUpIcon, Upload, Loader2 } from "lucide-react"
+import { ArrowUpIcon, Upload, Loader2, MessageSquare, Plus, Trash2, Menu, X } from "lucide-react"
 import { Button } from "@/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 import ReactMarkdown from "react-markdown"
@@ -18,6 +18,16 @@ type Message = {
   heatmapUrl?: string
 }
 
+// Session metadata type
+type SessionMetadata = {
+  id: string
+  title: string
+  timestamp: number
+  language: "english" | "hindi"
+  messageCount: number
+  lastMessage?: string
+}
+
 // Chat state types
 type ChatState =
   | "initial"
@@ -28,6 +38,41 @@ type ChatState =
   | "analyzing_image"
   | "pest_result"
   | "live_mode"  // NEW: Live mode for real-time interaction
+
+// Auto-resize textarea component (defined outside to prevent re-creation)
+const AutoResizeTextarea = React.forwardRef<
+  HTMLTextAreaElement,
+  Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange'> & {
+    onChange: (value: string) => void
+  }
+>(({ value, onChange, ...props }, _ref) => {
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+
+  const resizeTextarea = React.useCallback(() => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.style.height = "auto"
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }, [])
+
+  React.useEffect(() => {
+    resizeTextarea()
+  }, [value, resizeTextarea])
+
+  return (
+    <textarea
+      {...props}
+      value={value}
+      ref={textareaRef}
+      rows={1}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn("resize-none min-h-4 max-h-80", props.className)}
+    />
+  )
+})
+
+AutoResizeTextarea.displayName = "AutoResizeTextarea"
 
 export default function Page() {
   // State management
@@ -44,21 +89,169 @@ export default function Page() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  
+  // Sidebar state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [sessions, setSessions] = useState<SessionMetadata[]>([])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Memoized input handler to prevent cursor jumping
-  const handleInputChange = useCallback((value: string) => {
+  // Input change handler
+  const handleInputChange = (value: string) => {
     setInput(value)
-  }, [])
+  }
 
   // Auto-scroll to bottom of messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  // Load all sessions from localStorage
+  const loadAllSessions = useCallback(() => {
+    try {
+      const sessionsData = localStorage.getItem("trinera_sessions")
+      if (sessionsData) {
+        const parsedSessions: SessionMetadata[] = JSON.parse(sessionsData)
+        setSessions(parsedSessions.sort((a, b) => b.timestamp - a.timestamp))
+      }
+    } catch (error) {
+      console.error("Failed to load sessions:", error)
+    }
+  }, [])
+
+  // Save current session metadata
+  const saveSessionMetadata = useCallback(() => {
+    if (!sessionId || messages.length === 0) return
+    
+    try {
+      const sessionsData = localStorage.getItem("trinera_sessions")
+      const existingSessions: SessionMetadata[] = sessionsData ? JSON.parse(sessionsData) : []
+      
+      // Get first user message as title
+      const firstUserMessage = messages.find(m => m.role === "user")?.content
+      const title = firstUserMessage 
+        ? firstUserMessage.substring(0, 50) + (firstUserMessage.length > 50 ? "..." : "")
+        : "New Chat"
+      
+      const lastMessage = messages[messages.length - 1]?.content.substring(0, 100)
+      
+      const sessionIndex = existingSessions.findIndex(s => s.id === sessionId)
+      
+      const sessionMeta: SessionMetadata = {
+        id: sessionId,
+        title,
+        timestamp: Date.now(),
+        language,
+        messageCount: messages.length,
+        lastMessage
+      }
+      
+      if (sessionIndex >= 0) {
+        existingSessions[sessionIndex] = sessionMeta
+      } else {
+        existingSessions.push(sessionMeta)
+      }
+      
+      localStorage.setItem("trinera_sessions", JSON.stringify(existingSessions))
+      
+      // Also save full messages including images to a separate key for this session
+      const sessionMessagesKey = `trinera_messages_${sessionId}`
+      localStorage.setItem(sessionMessagesKey, JSON.stringify(messages))
+      
+      loadAllSessions()
+    } catch (error) {
+      console.error("Failed to save session metadata:", error)
+    }
+  }, [sessionId, messages, language, loadAllSessions])
+
+  // Load chat history from backend on mount if session exists
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        // Load all sessions list
+        loadAllSessions()
+        
+        // Try to get session_id from localStorage
+        const storedSessionId = localStorage.getItem("trinera_session_id")
+        const storedLanguage = localStorage.getItem("trinera_language") as "english" | "hindi" | null
+        
+        if (storedSessionId) {
+          // First try localStorage (has images)
+          const sessionMessagesKey = `trinera_messages_${storedSessionId}`
+          const storedMessages = localStorage.getItem(sessionMessagesKey)
+          
+          if (storedMessages) {
+            // Load from localStorage (includes images)
+            const parsedMessages: Message[] = JSON.parse(storedMessages)
+            
+            setSessionId(storedSessionId)
+            if (storedLanguage) {
+              setLanguage(storedLanguage)
+            }
+            
+            if (parsedMessages.length > 0) {
+              setMessages(parsedMessages)
+              setChatState("pest_result")
+            }
+            
+            console.log("✓ Chat history restored from localStorage:", parsedMessages.length, "messages")
+          } else {
+            // Fallback to backend
+            const response = await fetch(`${config.endpoints.chat}/history/${storedSessionId}`)
+            
+            if (response.ok) {
+              const history = await response.json()
+              
+              setSessionId(history.session_id)
+              if (storedLanguage) {
+                setLanguage(storedLanguage)
+              }
+              
+              // Convert backend messages to frontend format
+              const restoredMessages: Message[] = history.messages.map((msg: any) => ({
+                role: msg.role as "user" | "assistant" | "system",
+                content: msg.content
+              }))
+              
+              if (restoredMessages.length > 0) {
+                setMessages(restoredMessages)
+                setChatState("pest_result")
+              }
+              
+              console.log("✓ Chat history restored from backend:", history.messages.length, "messages")
+            }
+          }
+        }
+      } catch (error) {
+        console.log("No previous session to restore")
+      }
+    }
+    
+    loadChatHistory()
+  }, [loadAllSessions])
+
+  // Save session_id and language to localStorage when they change
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem("trinera_session_id", sessionId)
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    if (language) {
+      localStorage.setItem("trinera_language", language)
+    }
+  }, [language])
+
+  // Auto-save session metadata when messages change
+  useEffect(() => {
+    if (sessionId && messages.length > 1) {
+      saveSessionMetadata()
+    }
+  }, [messages, sessionId, saveSessionMetadata])
 
   // Clean up media stream when component unmounts (for live mode)
   useEffect(() => {
@@ -186,14 +379,20 @@ export default function Page() {
       // Prepare form data for API request
       const formData = new FormData()
       formData.append("file", fileToUpload)
-      formData.append("language", language)
+
+      // Build URL with query parameters
+      const url = new URL(config.endpoints.pestDetection)
+      url.searchParams.append("language", language)
+      if (sessionId) {
+        url.searchParams.append("session_id", sessionId)
+      }
 
       // Create abort controller with 150 second timeout (HF Space needs ~40s for inference)
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 150000) // 150 seconds
 
       // Call FastAPI backend
-      const response = await fetch(config.endpoints.pestDetection, {
+      const response = await fetch(url.toString(), {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -202,13 +401,17 @@ export default function Page() {
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to analyze image")
+        console.error("Backend error response:", errorData)
+        const errorMsg = errorData.details || errorData.error || "Failed to analyze image"
+        throw new Error(errorMsg)
       }
 
       const result = await response.json()
 
       if (!result.success) {
-        throw new Error(result.error || "Analysis failed")
+        console.error("Analysis failed:", result)
+        const errorMsg = result.details || result.error || "Analysis failed"
+        throw new Error(errorMsg)
       }
 
       // Store session_id for AI chat context
@@ -368,6 +571,146 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
     window.location.href = "/interbot/live"
   }
 
+  // Clear chat and start fresh session
+  const clearChat = async () => {
+    try {
+      // Clear backend session if exists
+      if (sessionId) {
+        try {
+          await fetch(`${config.apiUrl}/api/chat/session/${sessionId}`, {
+            method: "DELETE"
+          })
+        } catch (deleteError) {
+          console.log("Could not delete backend session (may not exist):", deleteError)
+          // Continue anyway - backend session might not exist
+        }
+      }
+      
+      // Clear localStorage
+      localStorage.removeItem("trinera_session_id")
+      localStorage.removeItem("trinera_language")
+      
+      // Reset state
+      setSessionId(null)
+      setMessages([
+        {
+          role: "assistant",
+          content:
+            "नमस्ते! Welcome to Trinera - Your AI farming assistant. Which language do you prefer?\n\nकृपया अपनी पसंदीदा भाषा चुनें:",
+        },
+      ])
+      setChatState("initial")
+      setLanguage("english")
+      setImageFile(null)
+      
+      console.log("✓ Chat cleared and session reset")
+    } catch (error) {
+      console.error("Error clearing chat:", error)
+      // Still reset the UI even if backend fails
+      setSessionId(null)
+      setMessages([
+        {
+          role: "assistant",
+          content:
+            "नमस्ते! Welcome to Trinera - Your AI farming assistant. Which language do you prefer?\n\nकृपया अपनी पसंदीदा भाषा चुनें:",
+        },
+      ])
+      setChatState("initial")
+      setLanguage("english")
+      setImageFile(null)
+    }
+  }
+
+  // Start a new chat session
+  const startNewChat = () => {
+    clearChat()
+  }
+
+  // Load a specific session
+  const loadSession = async (sessionMeta: SessionMetadata) => {
+    try {
+      // First, try to load from localStorage (includes images and full context)
+      const sessionMessagesKey = `trinera_messages_${sessionMeta.id}`
+      const storedMessages = localStorage.getItem(sessionMessagesKey)
+      
+      if (storedMessages) {
+        // Load from localStorage (has images)
+        const parsedMessages: Message[] = JSON.parse(storedMessages)
+        
+        setSessionId(sessionMeta.id)
+        setLanguage(sessionMeta.language)
+        localStorage.setItem("trinera_session_id", sessionMeta.id)
+        localStorage.setItem("trinera_language", sessionMeta.language)
+        
+        setMessages(parsedMessages)
+        setChatState("pest_result")
+        
+        console.log("✓ Session loaded from localStorage:", sessionMeta.id, parsedMessages.length, "messages")
+      } else {
+        // Fallback: Load from backend (no images but has text)
+        const response = await fetch(`${config.endpoints.chat}/history/${sessionMeta.id}`)
+        
+        if (response.ok) {
+          const history = await response.json()
+          
+          setSessionId(sessionMeta.id)
+          setLanguage(sessionMeta.language)
+          localStorage.setItem("trinera_session_id", sessionMeta.id)
+          localStorage.setItem("trinera_language", sessionMeta.language)
+          
+          // Convert backend messages to frontend format
+          const restoredMessages: Message[] = history.messages.map((msg: any) => ({
+            role: msg.role as "user" | "assistant" | "system",
+            content: msg.content
+          }))
+          
+          setMessages(restoredMessages)
+          setChatState("pest_result")
+          
+          console.log("✓ Session loaded from backend:", sessionMeta.id)
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load session:", error)
+    }
+  }
+
+  // Delete a session
+  const deleteSession = async (sessionMeta: SessionMetadata) => {
+    try {
+      // Delete from backend
+      try {
+        await fetch(`${config.apiUrl}/api/chat/session/${sessionMeta.id}`, {
+          method: "DELETE"
+        })
+      } catch (backendError) {
+        console.log("Could not delete from backend (may not exist):", backendError)
+      }
+      
+      // Remove from localStorage sessions list
+      const sessionsData = localStorage.getItem("trinera_sessions")
+      if (sessionsData) {
+        const existingSessions: SessionMetadata[] = JSON.parse(sessionsData)
+        const updatedSessions = existingSessions.filter(s => s.id !== sessionMeta.id)
+        localStorage.setItem("trinera_sessions", JSON.stringify(updatedSessions))
+        loadAllSessions()
+      }
+      
+      // Delete the session messages from localStorage
+      const sessionMessagesKey = `trinera_messages_${sessionMeta.id}`
+      localStorage.removeItem(sessionMessagesKey)
+      
+      // If this is the current session, clear it
+      if (sessionId === sessionMeta.id) {
+        clearChat()
+      }
+      
+      console.log("✓ Session deleted:", sessionMeta.id)
+    } catch (error) {
+      console.error("Failed to delete session:", error)
+    }
+  }
+
   // Handle form submission
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -431,45 +774,6 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
       if (form) form.requestSubmit()
     }
   }
-
-  // Auto-resize textarea
-  const AutoResizeTextarea = React.forwardRef<
-    HTMLTextAreaElement,
-    Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange'> & {
-      onChange: (value: string) => void
-    }
-  >(({ value, onChange, ...props }, _ref) => {
-    const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-    const resizeTextarea = useCallback(() => {
-      const textarea = textareaRef.current
-      if (textarea) {
-        textarea.style.height = "auto"
-        textarea.style.height = `${textarea.scrollHeight}px`
-      }
-    }, [])
-
-    useEffect(() => {
-      resizeTextarea()
-    }, [value, resizeTextarea])
-
-    const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      onChange(e.target.value)
-    }, [onChange])
-
-    return (
-      <textarea
-        {...props}
-        value={value}
-        ref={textareaRef}
-        rows={1}
-        onChange={handleChange}
-        className={cn("resize-none min-h-4 max-h-80", props.className)}
-      />
-    )
-  })
-
-  AutoResizeTextarea.displayName = "AutoResizeTextarea"
 
   // Render message content with images/videos/heatmaps
   const renderMessageContent = (message: Message) => {
@@ -557,8 +861,115 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
 
   return (
     <TooltipProvider delayDuration={0}>
-      <main className="mx-auto flex h-svh max-h-svh w-full max-w-[35rem] flex-col items-stretch border-none">
-        <div className="flex-1 content-center overflow-y-auto px-6">
+      <div className="flex h-svh max-h-svh w-full">
+        {/* Sidebar */}
+        <div 
+          className={cn(
+            "flex flex-col bg-gray-900 text-white transition-all duration-300 border-r border-gray-700",
+            isSidebarOpen ? "w-64" : "w-0"
+          )}
+        >
+          {isSidebarOpen && (
+            <>
+              {/* Sidebar Header */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                <h2 className="text-lg font-semibold">Chat History</h2>
+                <Button
+                  onClick={() => setIsSidebarOpen(false)}
+                  variant="ghost"
+                  size="sm"
+                  className="text-gray-400 hover:text-white hover:bg-gray-800"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* New Chat Button */}
+              <div className="p-3 border-b border-gray-700">
+                <Button
+                  onClick={startNewChat}
+                  className="w-full bg-gray-800 hover:bg-gray-700 text-white border border-gray-600"
+                  variant="outline"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Chat
+                </Button>
+              </div>
+
+              {/* Sessions List */}
+              <div className="flex-1 overflow-y-auto">
+                {sessions.length === 0 ? (
+                  <div className="p-4 text-center text-gray-400 text-sm">
+                    No chat history yet
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1 p-2">
+                    {sessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className={cn(
+                          "group flex items-center gap-2 p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-800",
+                          sessionId === session.id ? "bg-gray-800" : ""
+                        )}
+                        onClick={() => loadSession(session)}
+                      >
+                        <MessageSquare className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{session.title}</p>
+                          <p className="text-xs text-gray-400">
+                            {new Date(session.timestamp).toLocaleDateString()} • {session.messageCount} msgs
+                          </p>
+                        </div>
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteSession(session)
+                          }}
+                          variant="ghost"
+                          size="sm"
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 hover:bg-gray-700 p-1 h-auto"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Main Chat Area */}
+        <main className="flex-1 flex flex-col items-stretch max-w-[50rem] mx-auto w-full">
+          {/* Header with Menu and Clear Chat buttons */}
+          <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              {!isSidebarOpen && (
+                <Button
+                  onClick={() => setIsSidebarOpen(true)}
+                  variant="ghost"
+                  size="sm"
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+              )}
+              <h1 className="text-lg font-semibold">Trinera Chat</h1>
+            </div>
+            {chatState !== "initial" && messages.length > 1 && (
+              <Button 
+                onClick={clearChat} 
+                variant="ghost" 
+                size="sm"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                Clear Chat
+              </Button>
+            )}
+          </div>
+          
+          <div className="flex-1 content-center overflow-y-auto px-6">
           <div className="my-4 flex h-fit min-h-full flex-col gap-4">
             {messages.map((message, index) => (
               <div
@@ -684,7 +1095,8 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
             </TooltipContent>
           </Tooltip>
         </form>
-      </main>
+        </main>
+      </div>
     </TooltipProvider>
   )
 }

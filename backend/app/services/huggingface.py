@@ -154,6 +154,7 @@ class HuggingFaceService:
                 "description": f"Detection failed: {str(e)}"
             }
     
+    
     async def predict_pest(self, image_bytes: bytes) -> Dict[str, Any]:
         """
         Send image to Hugging Face Gradio Space for pest detection.
@@ -182,8 +183,6 @@ class HuggingFaceService:
             client = self._get_client()
             
             # Call the Gradio API
-            # Your Space's detect_image function returns (detected_output, detection_results)
-            # API signature: predict(image, api_name="/detect_image") -> (detected_output, detection_results)
             logger.info("Calling Gradio API with /detect_image endpoint")
             
             try:
@@ -203,7 +202,7 @@ class HuggingFaceService:
                         "Authentication failed with Hugging Face. Please check:\n"
                         "1. Your HF_TOKEN is valid (get a new one from https://huggingface.co/settings/tokens)\n"
                         "2. The token has 'read' permissions\n"
-                        "3. The Space 'S1-1IVAM/trinera-pest-detector' exists and is accessible\n"
+                        "3. The Space is accessible\n"
                         f"Current token starts with: {settings.HF_TOKEN[:10] if settings.HF_TOKEN else 'None'}..."
                     )
                 elif "404" in error_msg or "Not Found" in error_msg:
@@ -215,12 +214,6 @@ class HuggingFaceService:
                     raise Exception(f"Gradio API error: {error_msg}")
             
             logger.info(f"Received result from Gradio: {result}")
-            logger.info(f"Result type: {type(result)}")
-            
-            # If result is a tuple/list, log each element
-            if isinstance(result, (list, tuple)):
-                for idx, item in enumerate(result):
-                    logger.info(f"Result[{idx}]: type={type(item)}, value={str(item)[:200]}")
             
             # Process the result
             return self._process_gradio_result(result)
@@ -237,6 +230,44 @@ class HuggingFaceService:
                     logger.info(f"Cleaned up temporary file: {temp_file_path}")
                 except Exception as e:
                     logger.warning(f"Failed to delete temporary file: {e}")
+    
+    def _get_client(self) -> Client:
+        """Get or create Gradio client."""
+        if self.client is None:
+            logger.info(f"Initializing Gradio client for: {self.space_name}")
+            try:
+                # Try with token first
+                if settings.HF_TOKEN:
+                    logger.info("Using HF_TOKEN for authentication")
+                    try:
+                        self.client = Client(self.space_name, hf_token=settings.HF_TOKEN)
+                        logger.info("✅ Successfully connected to Gradio Space with token")
+                    except Exception as token_error:
+                        logger.warning(f"Failed with token: {str(token_error)}")
+                        logger.info("Retrying without token...")
+                        self.client = Client(self.space_name)
+                        logger.info("✅ Successfully connected to Gradio Space without token")
+                else:
+                    logger.warning("No HF_TOKEN provided, connecting without authentication")
+                    self.client = Client(self.space_name)
+                    logger.info("✅ Successfully connected to Gradio Space")
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Failed to initialize Gradio client: {error_msg}")
+                
+                # Provide helpful error message
+                if "Expecting value" in error_msg:
+                    raise Exception(
+                        f"Hugging Face Space '{self.space_name}' is not responding correctly. "
+                        "Please check:\n"
+                        "1. The Space is running (not sleeping or building)\n"
+                        "2. The Space is public\n"
+                        "3. Visit https://huggingface.co/spaces/{self.space_name} to wake it up\n"
+                        f"Error: {error_msg}"
+                    )
+                else:
+                    raise Exception(f"Cannot connect to Hugging Face Space: {error_msg}")
+        return self.client
     
     def _process_gradio_result(self, result: Any) -> Dict[str, Any]:
         """

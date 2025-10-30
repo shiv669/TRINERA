@@ -1,75 +1,88 @@
 """
-Configuration management for the FastAPI application.
-Loads environment variables and provides application settings.
+Application configuration settings
 """
 
 import os
-import logging
-from pathlib import Path
-from typing import List
-from dotenv import load_dotenv
-
-# Configure logging
-logger = logging.getLogger(__name__)
-
-# Get the backend directory path
-BACKEND_DIR = Path(__file__).parent.parent
-
-# Load environment variables from .env file in backend directory
-load_dotenv(BACKEND_DIR / ".env")
+from typing import List, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
-class Settings:
-    """Application settings loaded from environment variables."""
+class Settings(BaseSettings):
+    """Application settings"""
     
-    # Hugging Face Configuration
-    HF_TOKEN: str = os.getenv("HF_TOKEN", "")
-    HF_MODEL_ID: str = os.getenv("HF_MODEL_ID", "S1-1IVAM/trinera-pest-detector")
-    HF_API_URL: str = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    # API Settings
+    API_TITLE: str = Field("Trinera Pest Detection API", env="API_TITLE")
+    API_DESCRIPTION: str = Field("AI-powered pest detection and advisory system", env="API_DESCRIPTION")
+    API_VERSION: str = Field("1.0.0", env="API_VERSION")
+    ENVIRONMENT: str = Field("development", env="ENVIRONMENT")
     
-    # Server Configuration
-    PORT: int = int(os.getenv("PORT", "8000"))
-    HOST: str = os.getenv("HOST", "0.0.0.0")
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    # Server Settings
+    HOST: str = Field("0.0.0.0", env="HOST")
+    PORT: int = Field(8000, env="PORT")
     
-    # CORS Configuration
-    CORS_ORIGINS: List[str] = os.getenv(
-        "CORS_ORIGINS", 
-        "http://localhost:3000,http://localhost:3001"
-    ).split(",")
+    # CORS Settings
+    CORS_ORIGINS: str = Field(
+        default="http://localhost:3000,http://localhost:3001",
+        env="CORS_ORIGINS"
+    )
     
-    # Groq/Ollama LLM Configuration
-    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama-3.1-8b-instant")
-    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "https://api.groq.com/openai/v1")
-    MAX_CONTEXT_MESSAGES: int = int(os.getenv("MAX_CONTEXT_MESSAGES", "10"))
-    MAX_CONTEXT_TOKENS: int = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
-    SESSION_TTL: int = int(os.getenv("SESSION_TTL", "3600"))
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS origins from comma-separated string"""
+        if isinstance(self.CORS_ORIGINS, str):
+            return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+        return self.CORS_ORIGINS
     
-    # File Upload Configuration
-    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    ALLOWED_EXTENSIONS: List[str] = ["image/jpeg", "image/png", "image/webp", "image/jpg"]
+    # Hugging Face settings
+    HF_TOKEN: Optional[str] = Field(None, validation_alias="HUGGINGFACE_API_TOKEN")
+    HF_MODEL_ID: str = Field("S1-1IVAM/trinera-pest-detector", validation_alias="HUGGINGFACE_MODEL_ID")
     
-    # API Configuration
-    API_TITLE: str = "Trinera Pest Detection API"
-    API_DESCRIPTION: str = "FastAPI backend for pest detection using Hugging Face models"
-    API_VERSION: str = "1.0.0"
+    # LLM Settings
+    OLLAMA_MODEL: str = Field("llama-3.1-8b-instant", env="OLLAMA_MODEL")
+    OLLAMA_BASE_URL: str = Field("https://api.groq.com/openai/v1", env="OLLAMA_BASE_URL")
+    GROQ_API_KEY: Optional[str] = Field(None, env="GROQ_API_KEY")
+    
+    # MongoDB settings (optional)
+    MONGODB_URI: Optional[str] = Field(None, env="MONGODB_URI")
+    MONGODB_DB_NAME: str = Field("trinera", env="MONGODB_DB_NAME")
+    
+    # Session settings
+    SESSION_TTL: int = Field(3600, env="SESSION_TTL")
+    
+    # File Upload Settings
+    ALLOWED_EXTENSIONS: List[str] = Field(
+        default=["image/jpeg", "image/jpg", "image/png", "image/webp"],
+        env="ALLOWED_EXTENSIONS"
+    )
+    MAX_FILE_SIZE: int = Field(10 * 1024 * 1024, env="MAX_FILE_SIZE")  # 10MB default
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        populate_by_name=True,
+        extra="ignore"
+    )
     
     @property
     def is_production(self) -> bool:
-        """Check if running in production environment."""
+        """Check if running in production environment"""
         return self.ENVIRONMENT.lower() == "production"
     
-    def validate(self) -> None:
-        """Validate critical configuration settings."""
-        # HF_TOKEN is optional for public Spaces
+    def validate(self):
+        """Validate critical settings"""
+        warnings = []
+        
+        if not self.GROQ_API_KEY:
+            warnings.append("GROQ_API_KEY not set - LLM chat will not work")
+        
         if not self.HF_TOKEN:
-            logger.warning(
-                "HF_TOKEN is not set. Connecting to Hugging Face Space without authentication. "
-                "This is fine for public Spaces, but you may get rate limited. "
-                "Get a token from: https://huggingface.co/settings/tokens"
-            )
+            warnings.append("HF_TOKEN not set - Hugging Face features may not work")
+        
+        if warnings:
+            for warning in warnings:
+                print(f"⚠️  {warning}")
 
 
-# Create a global settings instance
+# Create settings instance
 settings = Settings()

@@ -111,13 +111,16 @@ async def detect_pest(
         raise
     
     except Exception as e:
-        logger.error(f"Error in pest detection: {str(e)}")
+        logger.error(f"Error in pest detection: {str(e)}", exc_info=True)
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={
                 "success": False,
                 "error": "Failed to process image",
-                "details": str(e)
+                "details": str(e),
+                "traceback": traceback.format_exc()
             }
         )
 
