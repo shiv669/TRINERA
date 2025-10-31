@@ -5,6 +5,7 @@ Real-time camera + voice interaction for pest detection
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, Optional
+from fastapi.responses import FileResponse
 import asyncio
 import base64
 import json
@@ -77,8 +78,10 @@ class LiveModeManager:
         
         # Store latest vision analysis per session
         self.latest_vision: Dict[str, Dict] = {}
+        # Store latest generated TTS file path per session
+        self.latest_audio: Dict[str, str] = {}
         
-        logger.info("🎙️ Live Mode Manager initialized with 3-stage pest detection")
+    logger.info("🎙️ Live Mode Manager initialized with 3-stage pest detection")
     
     async def connect(self, websocket: WebSocket, session_id: str, language: str = "english"):
         """Accept new WebSocket connection."""
@@ -446,14 +449,46 @@ The farmer is asking about this detected pest.
                 gender="female"
             )
             
-            # Send audio response (use "tts_audio" to match frontend expectation)
-            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-            await self.send_message(session_id, {
-                "type": "tts_audio",
-                "audio": audio_base64
-            })
-            
-            logger.info(f"🔊 TTS sent: {session_id} | {len(audio_bytes):,} bytes")
+            # Log a short header of the audio bytes for debugging (first 16 bytes hex)
+            try:
+                header = audio_bytes[:16]
+                header_hex = ' '.join(f"{b:02x}" for b in header)
+            except Exception:
+                header_hex = ""
+
+            logger.info(f"🔊 TTS generated for session={session_id} | size={len(audio_bytes):,} bytes | header={header_hex}")
+
+            # Save audio to a temporary file and register it for the session so the client can fetch via HTTP
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tf:
+                    tf.write(audio_bytes)
+                    tf_path = tf.name
+                self.latest_audio[session_id] = tf_path
+                tts_url = f"/api/live/tts/{session_id}?v={int(time.time())}"
+
+                # Send a small message with the URL to fetch audio (avoids sending large base64 via websocket)
+                await self.send_message(session_id, {
+                    "type": "tts_audio",
+                    "tts_url": tts_url,
+                    "mime": "audio/mpeg",
+                    "size": len(audio_bytes)
+                })
+
+                logger.info(f"🔊 TTS saved and URL sent: {session_id} | {len(audio_bytes):,} bytes | url={tts_url}")
+            except Exception as e:
+                logger.error(f"❌ Failed to save/send TTS file: {e}")
+                # Fallback: still send base64 if file save failed
+                try:
+                    audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                    await self.send_message(session_id, {
+                        "type": "tts_audio",
+                        "audio": audio_base64,
+                        "mime": "audio/mpeg",
+                        "size": len(audio_bytes)
+                    })
+                    logger.info(f"🔊 TTS sent as base64 fallback: {session_id} | {len(audio_bytes):,} bytes")
+                except Exception as e2:
+                    logger.error(f"❌ Failed fallback base64 send for TTS: {e2}")
             
         except Exception as e:
             logger.error(f"❌ TTS generation error: {e}")
@@ -613,3 +648,29 @@ async def list_live_sessions():
         "total": len(sessions),
         "sessions": sessions
     }
+
+
+@router.get('/live/tts/{session_id}')
+async def serve_tts(session_id: str):
+    """Serve the latest generated TTS audio file for a session.
+
+    The frontend should request this URL when it receives a `tts_audio` message
+    with a `tts_url` field.
+    """
+    try:
+        logger.info(f"Serving TTS for session: {session_id}")
+        path = live_manager.latest_audio.get(session_id)
+        logger.info(f"Lookup TTS path: {path}")
+        if not path:
+            logger.warning(f"No TTS path registered for session: {session_id}")
+            return JSONResponse(status_code=404, content={"error": "No audio available"})
+
+        if not os_module.path.exists(path):
+            logger.warning(f"TTS file not found on disk for session: {session_id} path={path}")
+            return JSONResponse(status_code=404, content={"error": "No audio file found"})
+
+        logger.info(f"Serving TTS file for session {session_id}: {path}")
+        return FileResponse(path, media_type='audio/mpeg', filename=f"{session_id}.mp3")
+    except Exception as e:
+        logger.error(f"Error serving TTS for session {session_id}: {e}")
+        return JSONResponse(status_code=500, content={"error": "Internal error"})

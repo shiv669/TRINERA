@@ -87,6 +87,7 @@ export function useLiveMode(config: LiveModeConfig) {
   const wsRef = useRef<WebSocket | null>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const frameIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   /**
@@ -122,6 +123,17 @@ export function useLiveMode(config: LiveModeConfig) {
         // Start sending frames
         if (videoElement) {
           startFrameCapture(videoElement)
+        }
+        // Ensure AudioContext is created/resumed on connect (user gesture)
+        try {
+          if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+            audioContextRef.current.resume().catch(() => {})
+          } else if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {})
+          }
+        } catch (e) {
+          console.warn('AudioContext not available or blocked at connect:', e)
         }
       }
 
@@ -177,7 +189,9 @@ export function useLiveMode(config: LiveModeConfig) {
 
     switch (data.type) {
       case 'connected':
-        console.log('✓ Session initialized')
+      case 'welcome':
+        // Some server code sends 'welcome' instead of 'connected'
+        console.log('✓ Session initialized (welcome)')
         break
 
       case 'frame_processed':
@@ -192,10 +206,14 @@ export function useLiveMode(config: LiveModeConfig) {
 
       case 'tts_audio':
       case 'audio': // backward compatibility: some servers may send 'audio' type
-        if (typeof data.audio === 'string') {
-          playAudio(data.audio)
+        // Prefer server-provided URL to avoid large base64 payloads over WebSocket
+        if (typeof (data as any).tts_url === 'string') {
+          const url = (data as any).tts_url as string
+          playUrl(url)
+        } else if (typeof data.audio === 'string') {
+          playAudio(data.audio as string)
         } else {
-          console.warn('Received audio message without audio payload')
+          console.warn('Received audio message without audio payload or URL')
         }
         break
 
@@ -284,6 +302,19 @@ export function useLiveMode(config: LiveModeConfig) {
       console.log('🎤 Speech recognition started')
       setIsListening(true)
       setTranscript('')
+
+      // Create/resume AudioContext on user gesture (helps with autoplay policies)
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+          // Some browsers require resume() to be called after a user gesture
+          audioContextRef.current.resume().catch(() => {})
+        } else if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume().catch(() => {})
+        }
+      } catch (e) {
+        console.warn('AudioContext not available or blocked:', e)
+      }
     }
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -368,17 +399,43 @@ export function useLiveMode(config: LiveModeConfig) {
    * Send voice input to server
    */
   const sendVoiceInput = (text: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected')
-      return
+    const ensureConnected = async (): Promise<boolean> => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return true
+
+      // Attempt to connect if not already
+      try {
+        console.log('🔌 WebSocket not open - attempting to connect before sending voice')
+        // call connect without a video element (no frame capture)
+        connect(null as unknown as HTMLVideoElement)
+      } catch (e) {
+        console.warn('Failed to initiate WebSocket connect:', e)
+      }
+
+      // Wait up to 3 seconds for OPEN
+      const start = Date.now()
+      while (Date.now() - start < 3000) {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return true
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      return false
     }
 
-    wsRef.current.send(JSON.stringify({
-      type: 'voice',
-      transcript: text
-    }))
+    ensureConnected().then((connected) => {
+      if (!connected || !wsRef.current) {
+        console.warn('WebSocket not connected, cannot send voice input')
+        return
+      }
 
-    console.log('📤 Sent voice input:', text)
+      wsRef.current.send(JSON.stringify({
+        type: 'voice',
+        transcript: text
+      }))
+
+      console.log('📤 Sent voice input:', text)
+    }).catch((err) => {
+      console.error('Error ensuring websocket connection before sending voice:', err)
+    })
   }
 
   /**
@@ -399,14 +456,70 @@ export function useLiveMode(config: LiveModeConfig) {
   /**
    * Play TTS audio
    */
+  const playUrl = async (url: string) => {
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.src = url
+        audioRef.current.preload = 'auto'
+        audioRef.current.crossOrigin = 'anonymous'
+      } else {
+        audioRef.current = new Audio(url)
+      }
+
+      audioRef.current.onplay = () => {
+        console.log('🔊 Playing TTS (url)')
+        setIsSpeaking(true)
+      }
+
+      audioRef.current.onended = () => {
+        console.log('🔊 TTS finished (url)')
+        setIsSpeaking(false)
+      }
+
+      try {
+        audioRef.current.load()
+      } catch {}
+
+      const p = audioRef.current.play()
+      if (p && typeof p.then === 'function') {
+        p.catch(async (err) => {
+          console.warn('Audio play() rejected for URL, attempting WebAudio fallback:', err)
+          try {
+            const resp = await fetch(url)
+            const arrayBuffer = await resp.arrayBuffer()
+            const audioCtx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)()
+            if (audioCtx.state === 'suspended') await audioCtx.resume()
+            const decoded = await audioCtx.decodeAudioData(arrayBuffer)
+            const src = audioCtx.createBufferSource()
+            src.buffer = decoded
+            src.connect(audioCtx.destination)
+            src.start(0)
+            setIsSpeaking(true)
+            src.onended = () => setIsSpeaking(false)
+          } catch (fallbackErr) {
+            console.error('WebAudio fallback failed for URL:', fallbackErr)
+            setIsSpeaking(false)
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Error playing URL audio:', error)
+      config.onError?.('Error playing audio URL')
+    }
+  }
+
   const playAudio = (base64Audio: string) => {
     try {
-      const audioBlob = base64ToBlob(base64Audio, 'audio/mp3')
+      // Use the more common 'audio/mpeg' MIME type which is widely supported
+      const audioBlob = base64ToBlob(base64Audio, 'audio/mpeg')
       const audioUrl = URL.createObjectURL(audioBlob)
 
       if (audioRef.current) {
         audioRef.current.pause()
         audioRef.current.src = audioUrl
+        audioRef.current.preload = 'auto'
+        audioRef.current.crossOrigin = 'anonymous'
       } else {
         audioRef.current = new Audio(audioUrl)
       }
@@ -427,7 +540,40 @@ export function useLiveMode(config: LiveModeConfig) {
         setIsSpeaking(false)
       }
 
-      audioRef.current.play()
+      // Try to play using HTMLAudioElement first
+      // Ensure the audio is loaded before attempting to play
+      try {
+        audioRef.current.load()
+      } catch {}
+
+      const playPromise = audioRef.current.play()
+      if (playPromise && typeof playPromise.then === 'function') {
+        playPromise.catch(async (err) => {
+          console.warn('Audio play() rejected, attempting WebAudio fallback:', err)
+
+          // Fallback: use WebAudio API to decode and play buffer (may succeed if AudioContext was created via user gesture)
+          try {
+            const arrayBuffer = await audioBlob.arrayBuffer()
+            const audioCtx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)()
+            // Ensure resumed
+            if (audioCtx.state === 'suspended') {
+              await audioCtx.resume()
+            }
+            const decoded = await audioCtx.decodeAudioData(arrayBuffer)
+            const src = audioCtx.createBufferSource()
+            src.buffer = decoded
+            src.connect(audioCtx.destination)
+            src.start(0)
+            setIsSpeaking(true)
+            src.onended = () => {
+              setIsSpeaking(false)
+            }
+          } catch (fallbackErr) {
+            console.error('WebAudio fallback failed:', fallbackErr)
+            setIsSpeaking(false)
+          }
+        })
+      }
     } catch (error) {
       console.error('Error playing audio:', error)
       config.onError?.('Error playing audio')

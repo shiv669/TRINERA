@@ -6,6 +6,8 @@ Handles communication with Hugging Face Gradio Spaces for pest detection.
 import logging
 import base64
 import tempfile
+import time
+import json
 import os
 from typing import Dict, Any, Optional
 from gradio_client import Client, handle_file
@@ -21,46 +23,46 @@ class HuggingFaceService:
     
     def __init__(self):
         self.space_name = settings.HF_MODEL_ID
-        self.client = None
         self.timeout = 120.0  # 120 seconds timeout (Space needs ~40s for inference)
     
     def _get_client(self) -> Client:
-        """Get or create Gradio client."""
-        if self.client is None:
-            logger.info(f"Initializing Gradio client for: {self.space_name}")
-            try:
-                # Try with token first
-                if settings.HF_TOKEN:
-                    logger.info("Using HF_TOKEN for authentication")
-                    try:
-                        self.client = Client(self.space_name, hf_token=settings.HF_TOKEN)
-                        logger.info("✅ Successfully connected to Gradio Space with token")
-                    except Exception as token_error:
-                        logger.warning(f"Failed with token: {str(token_error)}")
-                        logger.info("Retrying without token...")
-                        self.client = Client(self.space_name)
-                        logger.info("✅ Successfully connected to Gradio Space without token")
-                else:
-                    logger.warning("No HF_TOKEN provided, connecting without authentication")
-                    self.client = Client(self.space_name)
-                    logger.info("✅ Successfully connected to Gradio Space")
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Failed to initialize Gradio client: {error_msg}")
-                
-                # Provide helpful error message
-                if "Expecting value" in error_msg:
-                    raise Exception(
-                        f"Hugging Face Space '{self.space_name}' is not responding correctly. "
-                        "Please check:\n"
-                        "1. The Space is running (not sleeping or building)\n"
-                        "2. The Space is public\n"
-                        "3. Visit https://huggingface.co/spaces/{self.space_name} to wake it up\n"
-                        f"Error: {error_msg}"
-                    )
-                else:
-                    raise Exception(f"Cannot connect to Hugging Face Space: {error_msg}")
-        return self.client
+        """Create a fresh Gradio Client for each call to avoid any stateful caching in the client.
+
+        Returning a new Client instance per request is slightly heavier but avoids
+        sticky/cached results observed when a long-lived client retains state.
+        """
+        logger.info(f"Creating new Gradio client instance for: {self.space_name}")
+        try:
+            if settings.HF_TOKEN:
+                logger.info("Using HF_TOKEN for authentication (fresh client)")
+                try:
+                    client = Client(self.space_name, hf_token=settings.HF_TOKEN)
+                    logger.info("✅ Successfully created Gradio Client with token")
+                except Exception as token_error:
+                    logger.warning(f"Client creation with token failed: {token_error}")
+                    logger.info("Retrying without token (fresh client)")
+                    client = Client(self.space_name)
+                    logger.info("✅ Successfully created Gradio Client without token")
+            else:
+                logger.warning("No HF_TOKEN provided - creating unauthenticated client")
+                client = Client(self.space_name)
+                logger.info("✅ Successfully created Gradio Client")
+
+            return client
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Failed to create Gradio client: {error_msg}")
+            if "Expecting value" in error_msg:
+                raise Exception(
+                    f"Hugging Face Space '{self.space_name}' is not responding correctly. "
+                    "Please check:\n"
+                    "1. The Space is running (not sleeping or building)\n"
+                    "2. The Space is public\n"
+                    "3. Visit https://huggingface.co/spaces/{self.space_name} to wake it up\n"
+                    f"Error: {error_msg}"
+                )
+            else:
+                raise Exception(f"Cannot connect to Hugging Face Space: {error_msg}")
     
     async def analyze_image_heavy(self, image_path: str) -> Dict[str, Any]:
         """
@@ -184,34 +186,57 @@ class HuggingFaceService:
             
             # Call the Gradio API
             logger.info("Calling Gradio API with /detect_image endpoint")
-            
+
+            # Log client debug info (upload_url may be set internally by gradio client)
             try:
-                # Call with correct api_name and parameter
-                result = client.predict(
-                    image=handle_file(temp_file_path),
-                    api_name="/detect_image"
-                )
-                logger.info(f"✅ Got result from Gradio API: {type(result)}")
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Gradio API call failed: {error_msg}")
-                
-                # Provide helpful error messages
-                if "401" in error_msg or "Unauthorized" in error_msg:
-                    raise Exception(
-                        "Authentication failed with Hugging Face. Please check:\n"
-                        "1. Your HF_TOKEN is valid (get a new one from https://huggingface.co/settings/tokens)\n"
-                        "2. The token has 'read' permissions\n"
-                        "3. The Space is accessible\n"
-                        f"Current token starts with: {settings.HF_TOKEN[:10] if settings.HF_TOKEN else 'None'}..."
+                upload_url = getattr(client, "upload_url", None)
+                if upload_url:
+                    logger.info(f"Gradio client upload_url: {upload_url}")
+                # Dump a small set of client attributes for debugging
+                client_info = {k: repr(v)[:200] for k, v in getattr(client, "__dict__", {}).items()}
+                logger.debug(f"Gradio client attrs: {json.dumps(client_info)}")
+            except Exception:
+                # Non-fatal; just continue
+                logger.debug("Could not introspect Gradio client internals")
+
+            # Retry loop for transient network/handshake issues
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    # Call with correct api_name and parameter
+                    result = client.predict(
+                        image=handle_file(temp_file_path),
+                        api_name="/detect_image"
                     )
-                elif "404" in error_msg or "Not Found" in error_msg:
-                    raise Exception(
-                        f"Hugging Face Space '{self.space_name}' not found. "
-                        "Please verify the Space name is correct."
-                    )
-                else:
-                    raise Exception(f"Gradio API error: {error_msg}")
+                    logger.info(f"✅ Got result from Gradio API: {type(result)}")
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.error(f"Gradio API call failed (attempt {attempt}/{max_retries}): {error_msg}")
+
+                    # If this looks like a TLS/handshake/connect timeout, retry with backoff
+                    if ("handshake" in error_msg.lower() or "connecttimeout" in error_msg.lower() or "ssl" in error_msg.lower()) and attempt < max_retries:
+                        backoff = attempt * 1.5
+                        logger.info(f"Transient network error detected, retrying after {backoff:.1f}s...")
+                        time.sleep(backoff)
+                        continue
+
+                    # Provide helpful error messages for common HTTP errors
+                    if "401" in error_msg or "Unauthorized" in error_msg:
+                        raise Exception(
+                            "Authentication failed with Hugging Face. Please check:\n"
+                            "1. Your HF_TOKEN is valid (get a new one from https://huggingface.co/settings/tokens)\n"
+                            "2. The token has 'read' permissions\n"
+                            "3. The Space is accessible\n"
+                            f"Current token starts with: {settings.HF_TOKEN[:10] if settings.HF_TOKEN else 'None'}..."
+                        )
+                    elif "404" in error_msg or "Not Found" in error_msg:
+                        raise Exception(
+                            f"Hugging Face Space '{self.space_name}' not found. "
+                            "Please verify the Space name is correct."
+                        )
+                    else:
+                        raise Exception(f"Gradio API error: {error_msg}")
             
             logger.info(f"Received result from Gradio: {result}")
             
@@ -231,43 +256,10 @@ class HuggingFaceService:
                 except Exception as e:
                     logger.warning(f"Failed to delete temporary file: {e}")
     
-    def _get_client(self) -> Client:
-        """Get or create Gradio client."""
-        if self.client is None:
-            logger.info(f"Initializing Gradio client for: {self.space_name}")
-            try:
-                # Try with token first
-                if settings.HF_TOKEN:
-                    logger.info("Using HF_TOKEN for authentication")
-                    try:
-                        self.client = Client(self.space_name, hf_token=settings.HF_TOKEN)
-                        logger.info("✅ Successfully connected to Gradio Space with token")
-                    except Exception as token_error:
-                        logger.warning(f"Failed with token: {str(token_error)}")
-                        logger.info("Retrying without token...")
-                        self.client = Client(self.space_name)
-                        logger.info("✅ Successfully connected to Gradio Space without token")
-                else:
-                    logger.warning("No HF_TOKEN provided, connecting without authentication")
-                    self.client = Client(self.space_name)
-                    logger.info("✅ Successfully connected to Gradio Space")
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Failed to initialize Gradio client: {error_msg}")
-                
-                # Provide helpful error message
-                if "Expecting value" in error_msg:
-                    raise Exception(
-                        f"Hugging Face Space '{self.space_name}' is not responding correctly. "
-                        "Please check:\n"
-                        "1. The Space is running (not sleeping or building)\n"
-                        "2. The Space is public\n"
-                        "3. Visit https://huggingface.co/spaces/{self.space_name} to wake it up\n"
-                        f"Error: {error_msg}"
-                    )
-                else:
-                    raise Exception(f"Cannot connect to Hugging Face Space: {error_msg}")
-        return self.client
+    # NOTE: _get_client is defined above to always create a fresh Client per call.
+    # The older cached-client implementation was removed to avoid sticky/cached
+    # prediction behavior. Keep that single implementation (the one earlier in
+    # this file) which returns a fresh Client instance.
     
     def _process_gradio_result(self, result: Any) -> Dict[str, Any]:
         """
