@@ -12,6 +12,7 @@ from app.services.huggingface import HuggingFaceService
 from app.services.session_manager import session_store
 from app.utils.validators import validate_image_file
 from app.utils.pest_info import get_pest_info
+import hashlib
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -46,28 +47,30 @@ async def detect_pest(
     try:
         # Validate the uploaded file
         await validate_image_file(file)
-        
+
         # Read image file
         image_bytes = await file.read()
-        logger.info(f"Processing image: {file.filename}, size: {len(image_bytes)} bytes")
-        
+        img_hash = hashlib.sha256(image_bytes).hexdigest()
+        logger.info(f"Processing image: {file.filename}, size: {len(image_bytes)} bytes, sha256={img_hash}")
+
         # Get prediction from Hugging Face
         prediction_result = await hf_service.predict_pest(image_bytes)
-        
-        pest_label = prediction_result["label"]
-        confidence = prediction_result["confidence"]
-        
+        logger.info(f"Raw prediction result for image sha256={img_hash}: {prediction_result}")
+
+        pest_label = prediction_result.get("label")
+        confidence = prediction_result.get("confidence")
+
         logger.info(f"Prediction: {pest_label} (confidence: {confidence:.2f})")
-        
+
         # Get detailed pest information
         pest_info = get_pest_info(pest_label, language)
-        
+
         if not pest_info:
             raise HTTPException(
                 status_code=500,
                 detail="Failed to retrieve pest information"
             )
-        
+
         # Store in session for AI chat context
         session = session_store.get_session(session_id)
         session.language = language.lower()
@@ -86,7 +89,7 @@ async def detect_pest(
         )
         session_store.update_session(session)
         logger.info(f"Stored pest detection in session: {session.id}")
-        
+
         # Prepare response
         response = PestDetectionResponse(
             success=True,
@@ -103,7 +106,7 @@ async def detect_pest(
             message=f"Successfully detected: {pest_info['name']}",
             session_id=session.id  # Return session ID for frontend
         )
-        
+
         return response
     
     except HTTPException:

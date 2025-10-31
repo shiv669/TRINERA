@@ -157,6 +157,22 @@ export default function LiveModePage() {
                 playAudioChunk(data.audio)
               }
               break
+            
+            case "tts_audio":
+              console.log("🔊 Received tts_audio message", data)
+              // Prefer URL if provided
+              if (data.tts_url) {
+                try {
+                  playUrl(data.tts_url)
+                } catch (e) {
+                  console.error('Error playing tts_url:', e)
+                }
+              } else if (data.audio) {
+                playAudioChunk(data.audio)
+              } else {
+                console.warn('tts_audio message missing audio and tts_url')
+              }
+              break
 
             case "error":
               console.error("❌ Server error:", data.message)
@@ -450,6 +466,59 @@ export default function LiveModePage() {
       isPlayingAudioRef.current = false
       setIsSpeaking(false)
       currentAudioSourceRef.current = null
+    }
+  }
+
+  /**
+   * Fetch TTS audio by URL and play it using AudioContext (with fallbacks)
+   */
+  const playUrl = async (url: string) => {
+    try {
+      console.log('🔊 playUrl called with', url)
+
+      // Stop previous
+      stopAllAudio()
+
+      // Fetch audio data
+      const resp = await fetch(url)
+      if (!resp.ok) {
+        throw new Error(`Failed to fetch TTS audio: ${resp.status}`)
+      }
+
+      const arrayBuffer = await resp.arrayBuffer()
+
+      // Initialize AudioContext if needed
+      if (!audioContextRef.current) {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        audioContextRef.current = new AudioContextClass()
+      }
+
+      const audioContext = audioContextRef.current!
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume()
+      }
+
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      const source = audioContext.createBufferSource()
+      source.buffer = audioBuffer
+      source.connect(audioContext.destination)
+      currentAudioSourceRef.current = source
+      isPlayingAudioRef.current = true
+      setIsSpeaking(true)
+
+      source.onended = () => {
+        console.log('✅ TTS URL playback finished')
+        isPlayingAudioRef.current = false
+        setIsSpeaking(false)
+        currentAudioSourceRef.current = null
+      }
+
+      source.start(0)
+      console.log('✅ TTS URL playback started')
+    } catch (err) {
+      console.error('❌ Error in playUrl:', err)
+      setIsSpeaking(false)
     }
   }
 
