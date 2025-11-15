@@ -83,61 +83,112 @@ class HuggingFaceService:
         """
         try:
             logger.info(f"🔬 Starting heavy pest detection analysis...")
+            logger.info(f"Using HuggingFace Space: {self.space_name}")
             
-            # TODO: Replace with actual Gradio Space when available
-            # For now, we need a working IP102 pest detection Gradio Space
-            # The current HF_MODEL_ID is not a valid Gradio Space
-            
-            # Check if we have a valid Gradio Space
-            if not self.space_name or self.space_name == "S1-1IVAM/trinera-pest-detector":
-                logger.warning(
-                    "⚠️ No valid Gradio Space configured for pest detection. "
-                    "Please deploy an IP102 model to Gradio and update HF_MODEL_ID in .env"
-                )
+            # Check if we have a valid Gradio Space name
+            if not self.space_name:
+                logger.error("⚠️ No HF_MODEL_ID configured in .env")
                 raise Exception(
                     "Pest detection model not configured. "
-                    "Please deploy an IP102 pest detection model to HuggingFace Spaces."
+                    "Please set HF_MODEL_ID in .env to your Gradio Space name."
                 )
             
+            # Try to connect to the Gradio Space
             client = self._get_client()
             
-            # Call the prediction API
-            result = client.predict(
-                image=handle_file(image_path),
-                api_name="/predict"
-            )
+            # Log the image file details
+            if os.path.exists(image_path):
+                file_size = os.path.getsize(image_path)
+                logger.info(f"📸 Image file: {image_path} ({file_size:,} bytes)")
+            else:
+                logger.error(f"❌ Image file not found: {image_path}")
+                raise Exception(f"Image file not found: {image_path}")
+            
+            # Get available endpoints from the Gradio Space
+            try:
+                # Try to get the view_api info which lists all endpoints
+                logger.info(f"📋 Checking available endpoints in Gradio Space...")
+                
+                # The gradio_client stores endpoint info - let's inspect it
+                if hasattr(client, 'endpoints') or hasattr(client, 'api_map'):
+                    endpoints_info = getattr(client, 'endpoints', None) or getattr(client, 'api_map', None)
+                    logger.info(f"📋 Available endpoints: {endpoints_info}")
+                
+                # Try to get view_api
+                try:
+                    view_api = client.view_api(return_info=True)
+                    logger.info(f"📋 API Info: {view_api}")
+                except Exception as e:
+                    logger.warning(f"Could not get view_api: {e}")
+                
+            except Exception as e:
+                logger.warning(f"Could not inspect endpoints: {e}")
+            
+            # Try calling without api_name (will use the default/first endpoint)
+            logger.info(f"🔌 Attempting to call default endpoint (no api_name specified)")
+            try:
+                result = client.predict(
+                    handle_file(image_path)
+                )
+                logger.info(f"✅ Gradio API call completed with default endpoint")
+            except Exception as default_error:
+                logger.error(f"❌ Default endpoint failed: {default_error}")
+                
+                # Last resort: try common endpoint names
+                endpoints_to_try = ["/predict", "/classify", "/inference", "/detect", "predict"]
+                result = None
+                last_error = default_error
+                
+                for endpoint in endpoints_to_try:
+                    try:
+                        logger.info(f"🔌 Trying Gradio API endpoint '{endpoint}'")
+                        result = client.predict(
+                            image=handle_file(image_path),
+                            api_name=endpoint
+                        )
+                        logger.info(f"✅ Gradio API call completed with endpoint '{endpoint}'")
+                        break
+                    except Exception as e:
+                        last_error = e
+                        logger.warning(f"⚠️ Endpoint '{endpoint}' failed: {str(e)[:100]}")
+                        continue
+                
+                if result is None:
+                    logger.error(f"❌ All attempts failed. Last error: {last_error}")
+                    raise Exception(f"Could not find working endpoint. Last error: {last_error}")
             
             logger.info(f"📊 Heavy detection result: {result}")
             
-            # Parse result based on expected format
-            if isinstance(result, dict):
-                pest_name = result.get("label", "Unknown")
-                confidence = result.get("confidence", 0.0)
-            elif isinstance(result, tuple) and len(result) >= 2:
-                pest_name = result[0] if result[0] else "Unknown"
-                confidence = result[1] if len(result) > 1 else 0.0
-            elif isinstance(result, str):
-                pest_name = result
-                confidence = 0.8  # Assume decent confidence if model returns string
-            else:
-                logger.warning(f"⚠️ Unexpected result format: {type(result)}")
-                pest_name = "Unknown"
-                confidence = 0.0
+            # Use the same parsing logic as predict_pest (which works!)
+            parsed_result = self._process_gradio_result(result)
             
-            # Determine severity based on confidence
-            if confidence > 0.8:
-                severity = "High"
-            elif confidence > 0.5:
-                severity = "Medium"
+            # Extract pest info from parsed result
+            pest_name = parsed_result.get("label", "Unknown")
+            confidence = parsed_result.get("confidence", 0.0)
+            
+            # Determine severity - only for actual pest detections
+            if pest_name == "No Pest Detected":
+                severity = "None"
+                description = "No pests detected in the image"
+            elif pest_name in ["Unknown", "Detection Error", "Error"]:
+                severity = "Unknown"
+                description = f"Detection inconclusive: {pest_name}"
             else:
-                severity = "Low"
+                # Actual pest detected - calculate severity based on confidence
+                if confidence > 0.8:
+                    severity = "High"
+                elif confidence > 0.5:
+                    severity = "Medium"
+                else:
+                    severity = "Low"
+                description = f"Detected {pest_name} with {confidence:.1%} confidence"
             
             # Build detailed response
             response = {
                 "pest_name": pest_name,
                 "confidence": float(confidence),
                 "severity": severity,
-                "description": f"Detected {pest_name} with {confidence:.1%} confidence"
+                "description": description
             }
             
             logger.info(
@@ -148,12 +199,23 @@ class HuggingFaceService:
             return response
             
         except Exception as e:
-            logger.error(f"❌ Heavy pest detection error: {e}")
+            error_msg = str(e)
+            logger.error(f"❌ Heavy pest detection error: {error_msg}")
+            logger.error(f"Error type: {type(e).__name__}")
+            
+            # Provide more specific error messages
+            if "Expecting value" in error_msg or "JSONDecodeError" in error_msg:
+                error_msg = "Gradio Space is not responding. It may be sleeping or loading. Please try again in a moment."
+            elif "connect" in error_msg.lower() or "timeout" in error_msg.lower():
+                error_msg = f"Cannot connect to Gradio Space '{self.space_name}'. Please check if the Space is running."
+            elif "not found" in error_msg.lower() or "404" in error_msg:
+                error_msg = f"Gradio Space '{self.space_name}' not found. Please check the space name in your .env file."
+            
             return {
-                "pest_name": "Error",
+                "pest_name": "Detection Error",
                 "confidence": 0.0,
                 "severity": "Unknown",
-                "description": f"Detection failed: {str(e)}"
+                "description": error_msg
             }
     
     
@@ -286,6 +348,15 @@ class HuggingFaceService:
                 import re
                 
                 logger.info(f"Raw detection text to parse: '{detection_text}'")
+                
+                # Check for "no pests detected" message first
+                if 'no pest' in detection_text.lower() or 'not detected' in detection_text.lower():
+                    logger.info("No pests detected in image")
+                    return {
+                        "label": "No Pest Detected",
+                        "confidence": 0.95,  # High confidence that there's no pest
+                        "all_predictions": [{"label": "No Pest Detected", "score": 0.95}]
+                    }
                 
                 # Try multiple parsing patterns
                 

@@ -143,6 +143,7 @@ class LiveModeManager:
                 vision_result = await vision_analyzer.quick_analyze(image_bytes)
                 
                 # Store latest analysis with timestamp
+                logger.info(f"📸 Decoded image: {len(image_bytes):,} bytes")
                 self.latest_vision[session_id] = {
                     "vision_result": vision_result,
                     "image_bytes": image_bytes,
@@ -206,10 +207,22 @@ class LiveModeManager:
                 
                 # Should we call heavy pest detection?
                 if intent_match["should_call_heavy_model"]:
+                    # Verify we have image bytes
+                    image_bytes = latest.get("image_bytes")
+                    if not image_bytes:
+                        logger.error("❌ No image_bytes found in latest vision data!")
+                        await self.send_message(session_id, {
+                            "type": "error",
+                            "message": "No image available for analysis. Please ensure camera is working."
+                        })
+                        return
+                    
+                    logger.info(f"📸 Sending {len(image_bytes):,} bytes to heavy pest detection")
+                    
                     # STAGE 3: Heavy pest detection (3-5 seconds)
                     await self._call_heavy_pest_detection(
                         session_id,
-                        latest["image_bytes"],
+                        image_bytes,
                         transcript,
                         session.language
                     )
@@ -260,23 +273,50 @@ class LiveModeManager:
             })
             
             logger.info(f"🔬 STAGE 3: Calling heavy pest detection model...")
+            logger.info(f"📸 Image bytes to write: {len(image_bytes):,} bytes")
             
             # Save image to temporary file for HuggingFace API
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-                f.write(image_bytes)
+                bytes_written = f.write(image_bytes)
                 temp_path = f.name
+                logger.info(f"💾 Wrote {bytes_written:,} bytes to temp file: {temp_path}")
+                logger.info(f"📁 You can manually check this image at: {temp_path}")
+                logger.info(f"   (The file will be deleted after detection completes)")
             
             try:
                 # Call HuggingFace pest detection (3-5 seconds)
                 pest_result = await self.hf_service.analyze_image_heavy(temp_path)
                 
+                logger.info(f"📊 Full pest detection result: {pest_result}")
                 logger.info(
                     f"✅ STAGE 3 Complete: Detected {pest_result.get('pest_name', 'Unknown')} "
                     f"with {pest_result.get('confidence', 0):.1%} confidence"
                 )
                 
+                # If detection failed or no pest, keep temp file for debugging
+                pest_name = pest_result.get('pest_name', 'Unknown')
+                if pest_name in ['Error', 'Detection Error', 'No Pest Detected']:
+                    logger.warning(f"⚠️ Detection result: {pest_name}")
+                    logger.warning(f"💾 Temp image NOT deleted - you can inspect it at: {temp_path}")
+                    logger.warning(f"   Open this image to see what was sent to the model")
+                    if pest_name in ['Error', 'Detection Error']:
+                        logger.error(f"❌ Detection failed with description: {pest_result.get('description')}")
+                
                 # Build context with REAL pest detection data
-                if pest_result and pest_result.get("pest_name") != "Error":
+                pest_name = pest_result.get("pest_name", "Unknown")
+                
+                if pest_name == "No Pest Detected":
+                    # No pest detected - provide reassurance
+                    visual_context = f"""
+✅ NO PEST DETECTED
+The AI analysis found no pests in the current image.
+Confidence: {pest_result['confidence']:.1%}
+
+The farmer asked about pest identification but nothing was detected. 
+Provide reassurance and suggest preventive measures or ask if they see specific symptoms.
+"""
+                elif pest_result and pest_name not in ["Error", "Detection Error", "Unknown", "Pest Detected"]:
+                    # Specific pest identified
                     visual_context = f"""
 ⚠️ PEST IDENTIFIED: {pest_result['pest_name']}
 Confidence: {pest_result['confidence']:.1%}
@@ -286,7 +326,9 @@ Description: {pest_result.get('description', 'No description')}
 The farmer is asking about this detected pest.
 """
                 else:
-                    visual_context = "Pest detection was attempted but no clear pest was identified in the image. Provide general pest management advice."
+                    # Detection failed or inconclusive
+                    error_desc = pest_result.get('description', 'No error details available')
+                    visual_context = f"Pest detection was inconclusive (result: {pest_name}). Error: {error_desc}. Ask the farmer for more details about symptoms they're seeing and provide general pest management advice."
                 
                 # Generate AI response with real pest data
                 system_prompt = (
@@ -327,11 +369,14 @@ The farmer is asking about this detected pest.
                 )
                 
             finally:
-                # Cleanup temporary file
+                # Cleanup temporary file (unless it's a failed/no-pest detection for debugging)
                 try:
-                    os_module.unlink(temp_path)
-                except:
-                    pass
+                    if pest_result and pest_result.get('pest_name') not in ['No Pest Detected', 'Error', 'Detection Error']:
+                        os_module.unlink(temp_path)
+                        logger.info(f"🗑️ Cleaned up temp file: {temp_path}")
+                    # If no pest or error, keep file for manual inspection
+                except Exception as e:
+                    logger.warning(f"Could not delete temp file: {e}")
             
         except Exception as e:
             logger.error(f"❌ Heavy pest detection error: {e}")
@@ -464,7 +509,8 @@ The farmer is asking about this detected pest.
                     tf.write(audio_bytes)
                     tf_path = tf.name
                 self.latest_audio[session_id] = tf_path
-                tts_url = f"/api/live/tts/{session_id}?v={int(time.time())}"
+                # Use absolute URL so frontend can fetch from localhost
+                tts_url = f"http://localhost:8000/api/live/tts/{session_id}?v={int(time.time())}"
 
                 # Send a small message with the URL to fetch audio (avoids sending large base64 via websocket)
                 await self.send_message(session_id, {

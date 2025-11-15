@@ -458,6 +458,8 @@ export function useLiveMode(config: LiveModeConfig) {
    */
   const playUrl = async (url: string) => {
     try {
+      console.log('🔊 playUrl called with:', url)
+      
       if (audioRef.current) {
         audioRef.current.pause()
         audioRef.current.src = url
@@ -465,10 +467,12 @@ export function useLiveMode(config: LiveModeConfig) {
         audioRef.current.crossOrigin = 'anonymous'
       } else {
         audioRef.current = new Audio(url)
+        audioRef.current.preload = 'auto'
+        audioRef.current.crossOrigin = 'anonymous'
       }
 
       audioRef.current.onplay = () => {
-        console.log('🔊 Playing TTS (url)')
+        console.log('🔊 Playing TTS (url) - playback started')
         setIsSpeaking(true)
       }
 
@@ -477,10 +481,27 @@ export function useLiveMode(config: LiveModeConfig) {
         setIsSpeaking(false)
       }
 
-      try {
-        audioRef.current.load()
-      } catch {}
+      audioRef.current.onerror = (error) => {
+        console.error('❌ Audio element error for URL:', error, audioRef.current?.error)
+        setIsSpeaking(false)
+      }
 
+      audioRef.current.onloadstart = () => {
+        console.log('🔊 Audio loading started for URL:', url)
+      }
+
+      audioRef.current.oncanplay = () => {
+        console.log('🔊 Audio can play (buffered enough)')
+      }
+
+      try {
+        console.log('🔊 Calling audio.load()')
+        audioRef.current.load()
+      } catch (loadErr) {
+        console.error('❌ Error calling load():', loadErr)
+      }
+
+      console.log('🔊 Attempting to play audio from URL...')
       const p = audioRef.current.play()
       if (p && typeof p.then === 'function') {
         p.catch(async (err) => {
@@ -511,9 +532,14 @@ export function useLiveMode(config: LiveModeConfig) {
 
   const playAudio = (base64Audio: string) => {
     try {
+      console.log('🔊 playAudio called with base64 audio, length:', base64Audio.length)
+      
       // Use the more common 'audio/mpeg' MIME type which is widely supported
       const audioBlob = base64ToBlob(base64Audio, 'audio/mpeg')
+      console.log('🔊 Created audio blob, size:', audioBlob.size, 'type:', audioBlob.type)
+      
       const audioUrl = URL.createObjectURL(audioBlob)
+      console.log('🔊 Created blob URL:', audioUrl)
 
       if (audioRef.current) {
         audioRef.current.pause()
@@ -522,6 +548,8 @@ export function useLiveMode(config: LiveModeConfig) {
         audioRef.current.crossOrigin = 'anonymous'
       } else {
         audioRef.current = new Audio(audioUrl)
+        audioRef.current.preload = 'auto'
+        audioRef.current.crossOrigin = 'anonymous'
       }
 
       audioRef.current.onplay = () => {
