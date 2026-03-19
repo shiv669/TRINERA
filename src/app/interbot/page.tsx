@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
-import { ArrowUpIcon, Upload, Loader2, MessageSquare, Plus, Trash2, Menu, X } from "lucide-react"
+import { ArrowUpIcon, Upload, Loader2, MessageSquare, Plus, Trash2, Menu, X, Pencil, Check } from "lucide-react"
 import { Button } from "@/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 import ReactMarkdown from "react-markdown"
@@ -93,6 +93,8 @@ export default function Page() {
   // Sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [sessions, setSessions] = useState<SessionMetadata[]>([])
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -675,6 +677,30 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
     }
   }
 
+  // Rename a session
+  const renameSession = (id: string, newTitle: string) => {
+    const trimmed = newTitle.trim()
+    if (!trimmed) {
+      setRenamingSessionId(null)
+      return
+    }
+    try {
+      const sessionsData = localStorage.getItem("trinera_sessions")
+      if (sessionsData) {
+        const existingSessions: SessionMetadata[] = JSON.parse(sessionsData)
+        const updated = existingSessions.map(s =>
+          s.id === id ? { ...s, title: trimmed } : s
+        )
+        localStorage.setItem("trinera_sessions", JSON.stringify(updated))
+        loadAllSessions()
+      }
+      setRenamingSessionId(null)
+      console.log("✓ Session renamed:", id, "→", trimmed)
+    } catch (error) {
+      console.error("Failed to rename session:", error)
+    }
+  }
+
   // Delete a session
   const deleteSession = async (sessionMeta: SessionMetadata) => {
     try {
@@ -911,26 +937,72 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
                           "group flex items-center gap-2 p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-800",
                           sessionId === session.id ? "bg-gray-800" : ""
                         )}
-                        onClick={() => loadSession(session)}
+                        onClick={() => renamingSessionId !== session.id && loadSession(session)}
                       >
                         <MessageSquare className="h-4 w-4 flex-shrink-0 text-gray-400" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{session.title}</p>
-                          <p className="text-xs text-gray-400">
-                            {new Date(session.timestamp).toLocaleDateString()} • {session.messageCount} msgs
-                          </p>
+                          {renamingSessionId === session.id ? (
+                            <input
+                              type="text"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onBlur={() => renameSession(session.id, renameValue)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") renameSession(session.id, renameValue)
+                                if (e.key === "Escape") setRenamingSessionId(null)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                              className="w-full bg-gray-700 text-white text-sm px-2 py-1 rounded border border-gray-500 focus:border-blue-400 focus:outline-none"
+                            />
+                          ) : (
+                            <>
+                              <p className="text-sm font-medium truncate">{session.title}</p>
+                              <p className="text-xs text-gray-400">
+                                {new Date(session.timestamp).toLocaleDateString()} • {session.messageCount} msgs
+                              </p>
+                            </>
+                          )}
                         </div>
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            deleteSession(session)
-                          }}
-                          variant="ghost"
-                          size="sm"
-                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 hover:bg-gray-700 p-1 h-auto"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center gap-0.5">
+                          {renamingSessionId === session.id ? (
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                renameSession(session.id, renameValue)
+                              }}
+                              variant="ghost"
+                              size="sm"
+                              className="text-green-400 hover:text-green-300 hover:bg-gray-700 p-1 h-auto"
+                            >
+                              <Check className="h-3 w-3" />
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setRenamingSessionId(session.id)
+                                setRenameValue(session.title)
+                              }}
+                              variant="ghost"
+                              size="sm"
+                              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 hover:bg-gray-700 p-1 h-auto"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteSession(session)
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 hover:bg-gray-700 p-1 h-auto"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

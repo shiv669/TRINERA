@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Noto_Sans } from "next/font/google"; // 1. Global Theme: Font
 import "./globals.css";
+import Navbar from "@/components/Navbar"; // 1. Global Theme: Navbar
+import FloatingActions from "@/components/FloatingActions";
+import { LanguageProvider } from "@/context/LanguageContext";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+// Configuring Noto Sans for English, Devanagari (Hindi)
+const notoSans = Noto_Sans({
+  variable: "--font-noto-sans",
+  subsets: ["latin", "devanagari"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -23,11 +23,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="scroll-smooth">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${notoSans.variable} ${notoSans.className} antialiased flex flex-col min-h-screen`}
       >
-        {children}
+        <LanguageProvider>
+          <Navbar />
+          <main className="flex-grow">{children}</main>
+          <FloatingActions />
+        </LanguageProvider>
       </body>
     </html>
   );

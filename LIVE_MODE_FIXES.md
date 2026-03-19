@@ -1,4 +1,4 @@
-# Live Mode TTS and Speech Recognition Issues - Solutions
+  # Live Mode TTS and Speech Recognition Issues - Solutions
 
 ## Issues Identified
 
