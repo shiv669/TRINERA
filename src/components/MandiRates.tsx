@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { 
   XAxis, 
   YAxis, 
@@ -59,8 +59,8 @@ export default function MandiRates() {
            setError("No data found for the selected combination.");
            setShowData(true);
         }
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "An unknown error occurred");
         setShowData(false);
       } finally {
         setLoading(false);

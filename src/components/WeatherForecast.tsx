@@ -15,9 +15,32 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
+interface HourForecast {
+  time: string;
+  temp_c: number;
+  humidity: number;
+  condition: { text: string };
+}
+
+interface WeatherData {
+  location: { name: string; region: string };
+  current: {
+    temp_c: number;
+    humidity: number;
+    wind_kph: number;
+    uv: number;
+    vis_km: number;
+    pressure_mb: number;
+    condition: { text: string };
+  };
+  forecast: {
+    forecastday: { hour: HourForecast[] }[];
+  };
+}
+
 export default function WeatherForecast() {
   const [searchQuery, setSearchQuery] = useState("New Delhi");
-  const [weatherData, setWeatherData] = useState<any>(null);
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -29,8 +52,8 @@ export default function WeatherForecast() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch weather data");
       setWeatherData(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {
       setLoading(false);
     }
@@ -142,8 +165,8 @@ export default function WeatherForecast() {
               <div className="overflow-x-auto pb-6 -mx-4 px-4 sm:mx-0 sm:px-0 hide-scrollbar">
                 <div className="flex gap-4 min-w-max">
                   {weatherData.forecast.forecastday[0].hour
-                    .filter((hour: any) => new Date(hour.time).getTime() >= new Date().getTime() - 3600000)
-                    .map((hour: any, idx: number) => {
+                    .filter((hour: HourForecast) => new Date(hour.time).getTime() >= new Date().getTime() - 3600000)
+                    .map((hour: HourForecast, idx: number) => {
                       const WeatherIcon = getMetricIcon(hour.condition.text);
                       return (
                         <div key={idx} className="bg-white border border-gray-200 rounded-2xl p-5 min-w-[140px] flex flex-col items-center shadow-sm hover:border-[#2D5A27] hover:shadow-md transition-all">

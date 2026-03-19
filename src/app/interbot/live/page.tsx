@@ -213,6 +213,7 @@ export default function LiveModePage() {
       console.error("❌ Error creating WebSocket:", error)
       alert("Failed to connect. Make sure backend is running on port 8000.")
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
   /**
@@ -344,6 +345,7 @@ export default function LiveModePage() {
     } catch (error) {
       console.error("Error starting recognition:", error)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMicOn, isConnected])
 
   /**
@@ -706,6 +708,7 @@ export default function LiveModePage() {
       }
       stopFrameCapture()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /**

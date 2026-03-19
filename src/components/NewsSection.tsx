@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Calendar, Building, ArrowRight, Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -39,8 +40,8 @@ export default function NewsSection() {
         if (!res.ok) throw new Error(data.error || "Failed to fetch news");
         setNewsItems(data.results || []);
         setTotalResults(data.totalResults || data.results?.length || 0);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "An unknown error occurred");
       } finally {
         setLoading(false);
       }
@@ -134,10 +135,12 @@ export default function NewsSection() {
               >
                 <div className="h-48 overflow-hidden relative bg-gray-100 flex items-center justify-center">
                   {news.image_url ? (
-                    <img 
+                    <Image 
                       src={news.image_url} 
                       alt={news.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      fill
+                      unoptimized
+                      className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   ) : (
                     <span className="text-gray-400">No image available</span>

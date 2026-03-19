@@ -127,7 +127,7 @@ export function useLiveMode(config: LiveModeConfig) {
         // Ensure AudioContext is created/resumed on connect (user gesture)
         try {
           if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+            audioContextRef.current = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
             audioContextRef.current.resume().catch(() => {})
           } else if (audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume().catch(() => {})
@@ -165,6 +165,7 @@ export function useLiveMode(config: LiveModeConfig) {
       console.error('❌ Failed to create WebSocket:', error)
       config.onError?.(`Failed to create WebSocket: ${error}`)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config])
 
   /**
@@ -179,6 +180,7 @@ export function useLiveMode(config: LiveModeConfig) {
     stopListening()
     stopSpeaking()
     setIsConnected(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /**
@@ -207,9 +209,8 @@ export function useLiveMode(config: LiveModeConfig) {
       case 'tts_audio':
       case 'audio': // backward compatibility: some servers may send 'audio' type
         // Prefer server-provided URL to avoid large base64 payloads over WebSocket
-        if (typeof (data as any).tts_url === 'string') {
-          const url = (data as any).tts_url as string
-          playUrl(url)
+        if ('tts_url' in data && typeof data.tts_url === 'string') {
+          playUrl(data.tts_url)
         } else if (typeof data.audio === 'string') {
           playAudio(data.audio as string)
         } else {
@@ -306,7 +307,7 @@ export function useLiveMode(config: LiveModeConfig) {
       // Create/resume AudioContext on user gesture (helps with autoplay policies)
       try {
         if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+          audioContextRef.current = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
           // Some browsers require resume() to be called after a user gesture
           audioContextRef.current.resume().catch(() => {})
         } else if (audioContextRef.current.state === 'suspended') {
@@ -382,6 +383,7 @@ export function useLiveMode(config: LiveModeConfig) {
       console.error('🎤 Error starting recognition:', error)
       config.onError?.('Failed to start speech recognition')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, isSpeaking])
 
   /**
@@ -415,7 +417,6 @@ export function useLiveMode(config: LiveModeConfig) {
       const start = Date.now()
       while (Date.now() - start < 3000) {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return true
-        // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => setTimeout(r, 100))
       }
       return false
@@ -509,7 +510,7 @@ export function useLiveMode(config: LiveModeConfig) {
           try {
             const resp = await fetch(url)
             const arrayBuffer = await resp.arrayBuffer()
-            const audioCtx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)()
+            const audioCtx = audioContextRef.current || new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
             if (audioCtx.state === 'suspended') await audioCtx.resume()
             const decoded = await audioCtx.decodeAudioData(arrayBuffer)
             const src = audioCtx.createBufferSource()
@@ -582,7 +583,7 @@ export function useLiveMode(config: LiveModeConfig) {
           // Fallback: use WebAudio API to decode and play buffer (may succeed if AudioContext was created via user gesture)
           try {
             const arrayBuffer = await audioBlob.arrayBuffer()
-            const audioCtx = audioContextRef.current || new (window.AudioContext || (window as any).webkitAudioContext)()
+            const audioCtx = audioContextRef.current || new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
             // Ensure resumed
             if (audioCtx.state === 'suspended') {
               await audioCtx.resume()

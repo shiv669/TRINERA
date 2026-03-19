@@ -213,7 +213,7 @@ export default function Page() {
               }
               
               // Convert backend messages to frontend format
-              const restoredMessages: Message[] = history.messages.map((msg: any) => ({
+              const restoredMessages: Message[] = history.messages.map((msg: { role: string; content: string }) => ({
                 role: msg.role as "user" | "assistant" | "system",
                 content: msg.content
               }))
@@ -227,7 +227,7 @@ export default function Page() {
             }
           }
         }
-      } catch (error) {
+      } catch {
         console.log("No previous session to restore")
       }
     }
@@ -257,9 +257,10 @@ export default function Page() {
 
   // Clean up media stream when component unmounts (for live mode)
   useEffect(() => {
+    const videoEl = videoRef.current
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
+      if (videoEl && videoEl.srcObject) {
+        const stream = videoEl.srcObject as MediaStream
         stream.getTracks().forEach((track: MediaStreamTrack) => track.stop())
       }
     }
@@ -661,7 +662,7 @@ ${pestDetails.precautions.map((p: string, i: number) => `${i + 1}. ${p}`).join("
           localStorage.setItem("trinera_language", sessionMeta.language)
           
           // Convert backend messages to frontend format
-          const restoredMessages: Message[] = history.messages.map((msg: any) => ({
+          const restoredMessages: Message[] = history.messages.map((msg: { role: string; content: string }) => ({
             role: msg.role as "user" | "assistant" | "system",
             content: msg.content
           }))

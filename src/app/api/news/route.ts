@@ -75,15 +75,24 @@ export async function GET(request: Request) {
   }
 }
 
+interface NewsArticle {
+  title?: string;
+  url?: string;
+  source?: { name?: string };
+  publishedAt?: string;
+  urlToImage?: string;
+  description?: string;
+}
+
 // Helper to map NewsAPI articles to frontend format, filtering out removed/invalid articles
-function mapArticles(articles: any[]) {
+function mapArticles(articles: NewsArticle[]) {
   return (articles || [])
-    .filter((article: any) => 
+    .filter((article: NewsArticle) => 
       article.title !== "[Removed]" && 
       article.title && 
       article.url
     )
-    .map((article: any, index: number) => ({
+    .map((article: NewsArticle, index: number) => ({
       id: article.url || index.toString(),
       title: article.title,
       source: { name: article.source?.name || 'News' },
